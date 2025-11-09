@@ -1,0 +1,200 @@
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { FileText, Printer } from "lucide-react";
+import type { Student } from "./StudentsPage";
+import type { GradeEntry } from "./GradesPage";
+
+interface ReportsPageProps {
+  students: Student[];
+  grades: GradeEntry[];
+}
+
+const TERMS = ['Term 1', 'Term 2', 'Final'];
+
+export default function ReportsPage({ students, grades }: ReportsPageProps) {
+  const [selectedStudent, setSelectedStudent] = useState("");
+  const [selectedTerm, setSelectedTerm] = useState("");
+  const [showReport, setShowReport] = useState(false);
+
+  const handleGenerate = () => {
+    setShowReport(true);
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const student = students.find(s => s.id === selectedStudent);
+  const studentGrades = grades.filter(
+    g => g.studentId === selectedStudent && g.term === selectedTerm
+  );
+
+  const total = studentGrades.reduce((sum, g) => sum + g.marks, 0);
+  const average = studentGrades.length > 0 ? (total / studentGrades.length).toFixed(2) : '0';
+
+  return (
+    <div className="container mx-auto p-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold">Report Cards</h1>
+        <p className="text-muted-foreground">Generate student report cards</p>
+      </div>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Select Student and Term</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="student">Student</Label>
+              <Select value={selectedStudent} onValueChange={setSelectedStudent}>
+                <SelectTrigger id="student" data-testid="select-report-student">
+                  <SelectValue placeholder="Select student" />
+                </SelectTrigger>
+                <SelectContent>
+                  {students.map(student => (
+                    <SelectItem key={student.id} value={student.id}>
+                      {student.name} ({student.studentId})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="term">Term</Label>
+              <Select value={selectedTerm} onValueChange={setSelectedTerm}>
+                <SelectTrigger id="term" data-testid="select-report-term">
+                  <SelectValue placeholder="Select term" />
+                </SelectTrigger>
+                <SelectContent>
+                  {TERMS.map(term => (
+                    <SelectItem key={term} value={term}>{term}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end">
+              <Button
+                onClick={handleGenerate}
+                disabled={!selectedStudent || !selectedTerm}
+                className="w-full gap-2"
+                data-testid="button-generate-report"
+              >
+                <FileText className="w-4 h-4" />
+                Generate Report
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {showReport && student && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between print:hidden">
+            <CardTitle>Report Card</CardTitle>
+            <Button onClick={handlePrint} className="gap-2" data-testid="button-print-report">
+              <Printer className="w-4 h-4" />
+              Print
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="text-center border-b pb-4">
+              <h1 className="text-2xl font-semibold">Greenwood Academy</h1>
+              <p className="text-sm text-muted-foreground">Academic Report Card</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Student Name</p>
+                <p className="font-semibold">{student.name}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Student ID</p>
+                <p className="font-mono font-semibold">{student.studentId}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Grade / Section</p>
+                <p className="font-semibold">{student.grade} - {student.section}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Term</p>
+                <p className="font-semibold">{selectedTerm}</p>
+              </div>
+            </div>
+
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Subject</TableHead>
+                    <TableHead className="text-right">Marks Obtained</TableHead>
+                    <TableHead className="text-right">Maximum Marks</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {studentGrades.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                        No grades available for this term
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    <>
+                      {studentGrades.map((grade, index) => (
+                        <TableRow key={index}>
+                          <TableCell className="font-medium">{grade.subject}</TableCell>
+                          <TableCell className="text-right font-semibold">{grade.marks}</TableCell>
+                          <TableCell className="text-right">100</TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="bg-muted/50">
+                        <TableCell className="font-semibold">Total</TableCell>
+                        <TableCell className="text-right font-bold">{total}</TableCell>
+                        <TableCell className="text-right font-semibold">{studentGrades.length * 100}</TableCell>
+                      </TableRow>
+                      <TableRow className="bg-primary/10">
+                        <TableCell className="font-semibold">Average</TableCell>
+                        <TableCell className="text-right font-bold text-primary">{average}%</TableCell>
+                        <TableCell></TableCell>
+                      </TableRow>
+                    </>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="grid grid-cols-2 gap-8 pt-8 border-t">
+              <div className="text-center">
+                <div className="border-t border-foreground/20 pt-2 mt-12">
+                  <p className="text-sm text-muted-foreground">Class Teacher</p>
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="border-t border-foreground/20 pt-2 mt-12">
+                  <p className="text-sm text-muted-foreground">Principal</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
