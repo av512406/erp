@@ -1,0 +1,79 @@
+# SchoolERPPortal — Project Overview & Development README
+
+This repository contains a full-stack School ERP demo app (React + Vite + Express). The README below summarizes the project structure, how to run and build, key implementation notes, and troubleshooting tips.
+
+## Quick links (files & notable symbols)
+- Configuration & scripts: [package.json](package.json), [.replit](.replit), [vite.config.ts](vite.config.ts)
+- Server entry & dev integration: [server/index.ts](server/index.ts), [server/routes.ts](server/routes.ts), [server/storage.ts](server/storage.ts)
+- Vite dev server helpers: [`log`](server/vite.ts), [`setupVite`](server/vite.ts), [`serveStatic`](server/vite.ts) — see [server/vite.ts](server/vite.ts)
+- Shared types/schema: [shared/schema.ts](shared/schema.ts)
+- Client root and HTML: [client/index.html](client/index.html)
+- Client app entry: [client/src/App.tsx](client/src/App.tsx) — key exports: [`User`](client/src/App.tsx), [`Router`](client/src/App.tsx)
+- Firebase placeholder config & exports: [client/src/firebase.ts](client/src/firebase.ts) — exports: [`auth`](client/src/firebase.ts), [`db`](client/src/firebase.ts), [`appId`](client/src/firebase.ts)
+- UI components (examples):
+  - Calendar UI: [`Calendar`](client/src/components/ui/calendar.tsx) — [client/src/components/ui/calendar.tsx](client/src/components/ui/calendar.tsx)
+  - Chart styles & tooltip: [`ChartStyle`](client/src/components/ui/chart.tsx), [`ChartTooltipContent`](client/src/components/ui/chart.tsx) — [client/src/components/ui/chart.tsx](client/src/components/ui/chart.tsx)
+  - Toast primitives: [`Toast`](client/src/components/ui/toast.tsx), [`ToastViewport`](client/src/components/ui/toast.tsx) — [client/src/components/ui/toast.tsx](client/src/components/ui/toast.tsx)
+
+## Project layout (high level)
+- client/ — React SPA (Vite). Source is under `client/src`.
+- server/ — Express server that integrates Vite in middleware mode for dev. See [server/vite.ts](server/vite.ts).
+- shared/ — shared TypeScript schema/types between client and server.
+- attached_assets/ — static or generated assets.
+- .replit / vite.config.ts — Replit + Vite config for development/deployment.
+
+## How to run (development)
+1. Install dependencies:
+```bash
+npm install
+```
+
+2. Start dev workflow (Replit / local expects `npm run dev`):
+```bash
+npm run dev
+```
+- The `.replit` file runs `npm run dev` by default.
+- Dev server is wired so the Express server mounts Vite middleware via [`setupVite`](server/vite.ts). See [server/vite.ts](server/vite.ts).
+
+3. Open the app:
+- Dev environment exposes ports configured in `.replit`. By default `.replit` sets `PORT=5000`. See `.replit` and [vite.config.ts](vite.config.ts) for port / alias configs.
+
+## Build / Production
+Build artifacts are produced into `dist/public` as configured by [vite.config.ts](vite.config.ts). To build:
+```bash
+npm run build
+npm run start
+```
+- `.replit` uses `npm run build` for its deployment step.
+
+## Notable implementation details & TODOs
+- Vite + Express integration:
+  - The server mounts Vite middleware so the client is served with hot-module reload during development. Check [server/vite.ts](server/vite.ts) for functions: [`log`](server/vite.ts), [`setupVite`](server/vite.ts), [`serveStatic`](server/vite.ts).
+- Aliases:
+  - `@` -> `client/src`, `@shared` -> `shared`, `@assets` -> `attached_assets`. See [vite.config.ts](vite.config.ts).
+- Firebase:
+  - `client/src/firebase.ts` contains placeholder Firebase config. Replace with real project values before using auth or Firestore. Exports: [`auth`](client/src/firebase.ts), [`db`](client/src/firebase.ts), [`appId`](client/src/firebase.ts).
+- App structure:
+  - Main app routing & in-memory sample data is in [client/src/App.tsx](client/src/App.tsx). The `User` type and `Router` helper are declared there: [`User`](client/src/App.tsx), [`Router`](client/src/App.tsx).
+- UI components follow a component library pattern under `client/src/components/ui/`. Examples:
+  - Calendar: [`Calendar`](client/src/components/ui/calendar.tsx) integrates `react-day-picker`.
+  - Chart: [`ChartStyle`](client/src/components/ui/chart.tsx) injects theme CSS variables for charts.
+  - Toast: [`Toast`](client/src/components/ui/toast.tsx) wraps Radix primitives and provides variants.
+
+## Environment & secrets
+- `.env` exists in repo root; ensure any sensitive values (DB connection, Firebase) are not committed.
+- Replit `.replit` defines `PORT` and dev workflows. For local dev use the same `PORT` or let Vite handle HMR ports.
+
+## Troubleshooting & tips
+- If Vite middleware fails to start, check console output from server — [`log`](server/vite.ts) formats server logs with timestamps to aid debugging.
+- If the client tries to use Firebase, ensure `client/src/firebase.ts` is updated; otherwise Firestore/auth calls will fail silently or error with invalid credentials.
+- Aliases may confuse IDE intellisense if not configured — ensure your editor uses the project's tsconfig paths and Vite aliases in [vite.config.ts](vite.config.ts).
+
+## Suggested next steps
+- Replace placeholder Firebase config in [client/src/firebase.ts](client/src/firebase.ts).
+- Add unit / integration tests (none are present by default).
+- Externalize config (e.g., env vars) for production deployments rather than hardcoding any IDs.
+- Document API endpoints in [server/routes.ts](server/routes.ts) and add OpenAPI / Postman collection if intended for consumption.
+
+## Contact
+For code-level edits, modify files in the repository and use the same `npm run dev` workflow to iterate.

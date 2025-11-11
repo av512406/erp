@@ -148,6 +148,7 @@ function Router({ user }: { user: User }) {
       transactionId: `TXN${Math.random().toString().slice(2, 8)}`
     };
     setTransactions([newTransaction, ...transactions]);
+    return newTransaction;
   };
 
   const handleSaveGrades = (newGrades: GradeEntry[]) => {

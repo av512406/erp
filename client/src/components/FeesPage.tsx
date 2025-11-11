@@ -34,11 +34,13 @@ export interface FeeTransaction {
 interface FeesPageProps {
   students: Student[];
   transactions: FeeTransaction[];
-  onAddTransaction: (transaction: Omit<FeeTransaction, 'id' | 'transactionId'>) => void;
+  // returns the created transaction (with id and transactionId)
+  onAddTransaction: (transaction: Omit<FeeTransaction, 'id' | 'transactionId'>) => FeeTransaction;
 }
 
 export default function FeesPage({ students, transactions, onAddTransaction }: FeesPageProps) {
   const [selectedStudent, setSelectedStudent] = useState("");
+  const [viewStudent, setViewStudent] = useState("all");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedPayslip, setSelectedPayslip] = useState<FeeTransaction | null>(null);
@@ -47,17 +49,26 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
     e.preventDefault();
     const student = students.find(s => s.id === selectedStudent);
     if (student) {
-      onAddTransaction({
+      const created = onAddTransaction({
         studentId: student.id,
         studentName: student.name,
         amount: parseFloat(amount),
         date
       });
+      // open payslip for the newly created transaction
+      setSelectedPayslip(created);
       setSelectedStudent("");
       setAmount("");
       setDate(new Date().toISOString().split('T')[0]);
     }
   };
+
+  // compute viewed student's totals
+  const viewedStudent = viewStudent === 'all' ? null : (students.find(s => s.id === viewStudent) || null);
+  const studentTransactions = viewStudent === 'all' ? [] : transactions.filter(t => t.studentId === viewStudent);
+  const totalPaid = studentTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
+  const yearlyFee = viewedStudent ? parseFloat((viewedStudent as any).yearlyFeeAmount || '0') : 0;
+  const balance = yearlyFee - totalPaid;
 
   return (
     <div className="container mx-auto p-6">
@@ -118,6 +129,47 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
           </CardContent>
         </Card>
 
+        <div className="lg:col-span-1">
+          <Card>
+            <CardHeader>
+              <CardTitle>View Student</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="view-student">Student</Label>
+                  <Select value={viewStudent} onValueChange={setViewStudent}>
+                    <SelectTrigger id="view-student">
+                      <SelectValue placeholder="Select a student to view" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All students</SelectItem>
+                      {students.map((student) => (
+                        <SelectItem key={student.id} value={student.id}>
+                          {student.name} ({student.admissionNumber})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {viewedStudent && (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">Yearly Fee</p>
+                    <p className="text-lg font-semibold">₹{yearlyFee.toLocaleString('en-IN')}</p>
+                    <p className="text-sm text-muted-foreground">Total Paid</p>
+                    <p className="text-lg font-semibold">₹{totalPaid.toLocaleString('en-IN')}</p>
+                    <p className="text-sm text-muted-foreground">Balance</p>
+                    <p className={`text-lg font-semibold ${balance <= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      ₹{balance.toLocaleString('en-IN')}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
         <div className="lg:col-span-2">
           <Card>
             <CardHeader>
@@ -143,7 +195,7 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
                         </TableCell>
                       </TableRow>
                     ) : (
-                      transactions.map((transaction) => (
+                      (viewStudent ? studentTransactions : transactions).map((transaction) => (
                         <TableRow key={transaction.id} data-testid={`row-transaction-${transaction.id}`}>
                           <TableCell className="font-mono text-sm">{transaction.transactionId}</TableCell>
                           <TableCell className="font-medium">{transaction.studentName}</TableCell>
