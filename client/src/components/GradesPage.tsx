@@ -18,8 +18,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Save } from "lucide-react";
-import type { Student } from "./StudentsPage";
+import { Save, Download, Upload } from "lucide-react";
+import type { Student } from "@shared/schema";
 
 export interface GradeEntry {
   studentId: string;
@@ -63,6 +63,71 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
     }));
     onSaveGrades(newGrades);
     setGradeInputs({});
+  };
+
+  // CSV template download
+  const handleDownloadTemplate = () => {
+    // CSV headers: admissionNumber, name, marks
+    const rows = filteredStudents.map(s => ({
+      admissionNumber: s.admissionNumber,
+      name: s.name,
+      marks: ''
+    }));
+    const header = ['admissionNumber', 'name', 'marks'];
+    const csv = [header.join(',')]
+      .concat(rows.map(r => `${r.admissionNumber},"${r.name.replace(/"/g, '""')}",${r.marks}`))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selectedGrade || 'grade'}-${selectedSection || 'section'}-${selectedSubject || 'subject'}-${selectedTerm || 'term'}-marks-template.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // Import CSV and call onSaveGrades
+  const handleImportFile = (file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      if (!text) return;
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      if (lines.length === 0) return;
+      const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+      const admIndex = header.indexOf('admissionnumber');
+      const nameIndex = header.indexOf('name');
+      const marksIndex = header.indexOf('marks');
+      if (admIndex === -1 || marksIndex === -1) {
+        window.alert('CSV must contain headers: admissionNumber, name, marks');
+        return;
+      }
+      const parsed: GradeEntry[] = [];
+      const skipped: string[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',');
+        const admissionNumber = cols[admIndex]?.replace(/"/g, '').trim();
+        const marksStr = (cols[marksIndex] || '').trim();
+        if (!admissionNumber) continue;
+        const student = filteredStudents.find(s => s.admissionNumber === admissionNumber);
+        if (!student) {
+          skipped.push(admissionNumber);
+          continue;
+        }
+        const marks = parseFloat(marksStr || '0');
+        parsed.push({ studentId: student.id, subject: selectedSubject, marks, term: selectedTerm });
+      }
+      if (parsed.length > 0) {
+        onSaveGrades(parsed);
+        window.alert(`Imported ${parsed.length} records${skipped.length ? `, skipped ${skipped.length} unknown admission numbers` : ''}.`);
+      } else {
+        window.alert('No valid records found to import.');
+      }
+    };
+    reader.readAsText(file, 'utf-8');
   };
 
   const isReadyToEnter = selectedGrade && selectedSection && selectedSubject && selectedTerm;
@@ -140,10 +205,28 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Enter Marks - {selectedSubject} ({selectedTerm})</CardTitle>
-            <Button onClick={handleSave} className="gap-2" data-testid="button-save-grades">
-              <Save className="w-4 h-4" />
-              Save Grades
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={handleDownloadTemplate} variant="outline" className="gap-2" data-testid="button-download-template">
+                <Download className="w-4 h-4" />
+                Download Template
+              </Button>
+              {/* hidden file input for CSV import */}
+              <input
+                id="import-csv-input"
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={(e) => handleImportFile(e.target.files ? e.target.files[0] : null)}
+              />
+              <Button onClick={() => document.getElementById('import-csv-input')?.click()} className="gap-2" data-testid="button-import-csv">
+                <Upload className="w-4 h-4" />
+                Import CSV
+              </Button>
+              <Button onClick={handleSave} className="gap-2" data-testid="button-save-grades">
+                <Save className="w-4 h-4" />
+                Save Grades
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             <div className="border rounded-lg overflow-hidden">
@@ -171,7 +254,7 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
                       );
                       return (
                         <TableRow key={student.id}>
-                          <TableCell className="font-mono">{student.studentId}</TableCell>
+                          <TableCell className="font-mono">{student.admissionNumber}</TableCell>
                           <TableCell className="font-medium">{student.name}</TableCell>
                           <TableCell className="text-right">
                             <Input
