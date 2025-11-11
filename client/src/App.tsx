@@ -169,15 +169,41 @@ function Router({ user }: { user: User }) {
   };
 
   const handleImportStudents = (importedStudents: Omit<Student, 'id'>[]) => {
-    const newStudents = importedStudents.map((s, index) => ({
-      ...s,
-      id: (Date.now() + index).toString()
-    }));
-    setStudents([...students, ...newStudents]);
+    // Skip duplicates by admissionNumber
+    const existingAdmissions = new Set(students.map(s => s.admissionNumber));
+    const now = Date.now();
+    const toAdd: Student[] = [];
+    const skipped: string[] = [];
+    importedStudents.forEach((s, idx) => {
+      if (existingAdmissions.has(s.admissionNumber)) {
+        skipped.push(s.admissionNumber);
+      } else {
+        toAdd.push({ ...s, id: (now + idx).toString() });
+      }
+    });
+    if (toAdd.length > 0) setStudents([...students, ...toAdd]);
+    return { added: toAdd.length, skipped: skipped.length, skippedAdmissionNumbers: skipped };
   };
 
   const handleImportGrades = (importedGrades: GradeEntry[]) => {
     setGrades([...grades, ...importedGrades]);
+  };
+
+  const handleUpsertStudents = (studentsToUpdate: Omit<Student, 'id'>[]) => {
+    let updated = 0;
+    setStudents(prev => {
+      const updatedArr = prev.map(s => {
+        const match = studentsToUpdate.find(u => u.admissionNumber === s.admissionNumber);
+        if (match) {
+          updated++;
+          // keep existing id, overwrite other fields
+          return { ...s, ...match, id: s.id };
+        }
+        return s;
+      });
+      return updatedArr;
+    });
+    return { updated };
   };
 
   const stats = {
@@ -217,6 +243,7 @@ function Router({ user }: { user: User }) {
             <DataToolsPage
               students={students}
               onImportStudents={handleImportStudents}
+              onUpsertStudents={handleUpsertStudents}
               onImportGrades={handleImportGrades}
             />
           </Route>

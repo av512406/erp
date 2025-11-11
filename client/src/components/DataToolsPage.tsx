@@ -6,12 +6,46 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Upload, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import type { Student } from "@shared/schema";
 import type { GradeEntry } from "./GradesPage";
 
+interface ImportSummary {
+  added: number;
+  skipped: number;
+  skippedAdmissionNumbers?: string[];
+}
+
+type RawStudentRow = {
+  admissionNumber: string;
+  name: string;
+  dateOfBirth?: string;
+  admissionDate?: string;
+  aadharNumber?: string;
+  penNumber?: string;
+  aaparId?: string;
+  mobileNumber?: string;
+  address?: string;
+  grade?: string;
+  section?: string;
+  yearlyFeeAmount?: string;
+};
+
 interface DataToolsPageProps {
   students: Student[];
-  onImportStudents: (students: Omit<Student, 'id'>[]) => void;
+  // returns a summary of import (added/skipped)
+  onImportStudents: (students: Omit<Student, 'id'>[]) => ImportSummary;
+  // upsert existing students (update existing records by admissionNumber)
+  onUpsertStudents: (students: Omit<Student, 'id'>[]) => { updated: number };
   onImportGrades: (grades: GradeEntry[]) => void;
 }
 
@@ -21,12 +55,16 @@ declare global {
   }
 }
 
-export default function DataToolsPage({ students, onImportStudents, onImportGrades }: DataToolsPageProps) {
+export default function DataToolsPage({ students, onImportStudents, onUpsertStudents, onImportGrades }: DataToolsPageProps) {
   const [isImporting, setIsImporting] = useState(false);
   const [exportFilter, setExportFilter] = useState<string>("all");
+  const [templateGrade, setTemplateGrade] = useState<string>("all");
   const studentFileRef = useRef<HTMLInputElement>(null);
   const gradesFileRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const [skippedAdmissions, setSkippedAdmissions] = useState<string[] | null>(null);
+  const [lastImportedRows, setLastImportedRows] = useState<RawStudentRow[] | null>(null);
+  const [skippedRows, setSkippedRows] = useState<RawStudentRow[] | null>(null);
 
   // Get unique grades for filter dropdown
   const uniqueGrades = Array.from(new Set(students.map(s => s.grade)))
@@ -59,11 +97,19 @@ export default function DataToolsPage({ students, onImportStudents, onImportGrad
               section: row.section,
               yearlyFeeAmount: row.yearlyFeeAmount
             }));
-          onImportStudents(importedStudents);
+          // keep a copy of raw parsed rows for review/export/upsert
+          setLastImportedRows(importedStudents as RawStudentRow[]);
+          const summary = onImportStudents(importedStudents);
           toast({
-            title: "Import Successful",
-            description: `Imported ${importedStudents.length} students`,
+            title: "Import Finished",
+            description: `Added ${summary.added} students, skipped ${summary.skipped} duplicates`,
           });
+          if (summary.skipped && summary.skippedAdmissionNumbers && summary.skippedAdmissionNumbers.length) {
+            setSkippedAdmissions(summary.skippedAdmissionNumbers);
+            // prepare skipped rows to allow export/upsert
+            const skipped = importedStudents.filter((r: RawStudentRow) => summary.skippedAdmissionNumbers!.includes(r.admissionNumber));
+            setSkippedRows(skipped);
+          }
           setIsImporting(false);
           if (studentFileRef.current) studentFileRef.current.value = '';
         }
@@ -139,6 +185,64 @@ export default function DataToolsPage({ students, onImportStudents, onImportGrad
         <p className="text-muted-foreground">Import and export data in bulk</p>
       </div>
 
+      {/* Skipped duplicates dialog */}
+      <AlertDialog open={!!skippedAdmissions} onOpenChange={() => setSkippedAdmissions(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Skipped Duplicate Students</AlertDialogTitle>
+            <AlertDialogDescription>
+              The following admission numbers were skipped because they already exist in the system.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="max-h-64 overflow-y-auto mt-2">
+            <ul className="list-disc pl-6">
+              {skippedAdmissions?.map(adm => (
+                <li key={adm} className="font-mono">{adm}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                // export skipped rows as CSV if available
+                if (!skippedRows || skippedRows.length === 0) return;
+                const header = ['admissionNumber', 'name', 'dateOfBirth', 'admissionDate', 'aadharNumber', 'penNumber', 'aaparId', 'mobileNumber', 'address', 'grade', 'section', 'yearlyFeeAmount'];
+                const rows = skippedRows.map(r => [r.admissionNumber, `"${(r.name||'').replace(/"/g, '""') }"`, r.dateOfBirth || '', r.admissionDate || '', r.aadharNumber || '', r.penNumber || '', r.aaparId || '', r.mobileNumber || '', `"${(r.address||'').replace(/"/g,'""') }"`, r.grade || '', r.section || '', r.yearlyFeeAmount || ''].join(','));
+                const csv = [header.join(','), ...rows].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `skipped-students-${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              Export Skipped CSV
+            </Button>
+            <Button
+              onClick={() => {
+                // upsert skipped rows (update existing records)
+                if (!skippedRows || skippedRows.length === 0) return;
+                const result = onUpsertStudents(skippedRows as any);
+                toast({ title: 'Upsert completed', description: `Updated ${result.updated} records` });
+                setSkippedAdmissions(null);
+                setSkippedRows(null);
+              }}
+            >
+              Upsert Existing Records
+            </Button>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Close</AlertDialogCancel>
+            <AlertDialogAction onClick={() => setSkippedAdmissions(null)}>Okay</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
@@ -148,6 +252,20 @@ export default function DataToolsPage({ students, onImportStudents, onImportGrad
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="template-grade">Template Grade (optional)</Label>
+              <Select value={templateGrade} onValueChange={setTemplateGrade}>
+                <SelectTrigger id="template-grade">
+                  <SelectValue placeholder="Select grade for template" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All grades</SelectItem>
+                  {uniqueGrades.map(g => (
+                    <SelectItem key={g} value={g}>Grade {g}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="student-file">CSV File</Label>
               <Input
@@ -163,6 +281,42 @@ export default function DataToolsPage({ students, onImportStudents, onImportGrad
             <div className="text-sm text-muted-foreground">
               <p className="font-medium mb-1">Expected columns:</p>
               <p className="font-mono text-xs">admissionNumber, name, dateOfBirth, admissionDate, aadharNumber, penNumber, aaparId, mobileNumber, address, grade, section, yearlyFeeAmount</p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="w-full gap-2"
+                onClick={() => studentFileRef.current?.click()}
+                disabled={isImporting}
+                data-testid="button-import-students"
+              >
+                <Upload className="w-4 h-4" />
+                {isImporting ? 'Importing...' : 'Select File'}
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full gap-2"
+                onClick={() => {
+                  // generate template for selected templateGrade
+                  const filtered = templateGrade === 'all' ? students : students.filter(s => s.grade === templateGrade);
+                  const header = ['admissionNumber', 'name', 'dateOfBirth', 'admissionDate', 'aadharNumber', 'penNumber', 'aaparId', 'mobileNumber', 'address', 'grade', 'section', 'yearlyFeeAmount'];
+                  const rows = filtered.length > 0 ? filtered.map(s => [s.admissionNumber, s.name, s.dateOfBirth, s.admissionDate, s.aadharNumber, s.penNumber, s.aaparId, s.mobileNumber, s.address, s.grade, s.section, s.yearlyFeeAmount].join(',')) : [['', '', '', '', '', '', '', '', '', '', '', ''].join(',')];
+                  const csv = [header.join(','), ...rows].join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `students-template-${templateGrade === 'all' ? 'all' : 'grade-' + templateGrade}.csv`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  URL.revokeObjectURL(url);
+                }}
+                data-testid="button-download-students-template"
+              >
+                <Download className="w-4 h-4" />
+                Download Template
+              </Button>
             </div>
             <Button
               variant="outline"
