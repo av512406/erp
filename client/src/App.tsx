@@ -24,110 +24,65 @@ interface User {
 
 function Router({ user }: { user: User }) {
   const [, setLocation] = useLocation();
-  const [students, setStudents] = useState<Student[]>([
-    {
-      id: '1',
-      admissionNumber: 'STU001',
-      name: 'John Doe',
-      dateOfBirth: '2010-05-15',
-      admissionDate: '2022-04-01',
-      aadharNumber: '1234-5678-9012',
-      penNumber: 'PEN001234',
-      aaparId: 'AAP001',
-      mobileNumber: '555-0101',
-      address: '123 Main St, City, State',
-      grade: '10',
-      section: 'A',
-      yearlyFeeAmount: '25000'
-    },
-    {
-      id: '2',
-      admissionNumber: 'STU002',
-      name: 'Jane Smith',
-      dateOfBirth: '2010-08-22',
-      admissionDate: '2022-04-01',
-      aadharNumber: '2345-6789-0123',
-      penNumber: 'PEN001235',
-      aaparId: 'AAP002',
-      mobileNumber: '555-0102',
-      address: '456 Oak Ave, City, State',
-      grade: '10',
-      section: 'A',
-      yearlyFeeAmount: '25000'
-    },
-    {
-      id: '3',
-      admissionNumber: 'STU003',
-      name: 'Bob Johnson',
-      dateOfBirth: '2010-03-10',
-      admissionDate: '2022-04-01',
-      aadharNumber: '3456-7890-1234',
-      penNumber: 'PEN001236',
-      aaparId: 'AAP003',
-      mobileNumber: '555-0103',
-      address: '789 Elm St, City, State',
-      grade: '10',
-      section: 'B',
-      yearlyFeeAmount: '25000'
-    },
-    {
-      id: '4',
-      admissionNumber: 'STU004',
-      name: 'Alice Williams',
-      dateOfBirth: '2011-11-30',
-      admissionDate: '2023-04-01',
-      aadharNumber: '4567-8901-2345',
-      penNumber: 'PEN001237',
-      aaparId: 'AAP004',
-      mobileNumber: '555-0104',
-      address: '321 Pine Rd, City, State',
-      grade: '9',
-      section: 'A',
-      yearlyFeeAmount: '28000'
-    },
-    {
-      id: '5',
-      admissionNumber: 'STU005',
-      name: 'Charlie Brown',
-      dateOfBirth: '2009-07-18',
-      admissionDate: '2021-04-01',
-      aadharNumber: '5678-9012-3456',
-      penNumber: 'PEN001238',
-      aaparId: 'AAP005',
-      mobileNumber: '555-0105',
-      address: '654 Maple Dr, City, State',
-      grade: '11',
-      section: 'A',
-      yearlyFeeAmount: '22000'
+  const [students, setStudents] = useState<Student[]>(() => {
+    try {
+      const raw = localStorage.getItem('erp_students');
+      if (raw) return JSON.parse(raw) as Student[];
+    } catch (e) {
+      // ignore parse errors
     }
-  ]);
+    // start with an empty student list by default
+    return [];
+  });
 
-  const [transactions, setTransactions] = useState<FeeTransaction[]>([
-    {
-      id: '1',
-      studentId: '1',
-      studentName: 'John Doe',
-      amount: 500,
-      date: '2024-01-15',
-      transactionId: 'TXN001234'
-    },
-    {
-      id: '2',
-      studentId: '2',
-      studentName: 'Jane Smith',
-      amount: 750,
-      date: '2024-01-18',
-      transactionId: 'TXN001235'
+  // persist students to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('erp_students', JSON.stringify(students));
+    } catch (e) {
+      // ignore storage errors
     }
-  ]);
+  }, [students]);
 
-  const [grades, setGrades] = useState<GradeEntry[]>([
-    { studentId: '1', subject: 'Mathematics', marks: 85, term: 'Term 1' },
-    { studentId: '1', subject: 'Science', marks: 92, term: 'Term 1' },
-    { studentId: '1', subject: 'English', marks: 78, term: 'Term 1' },
-    { studentId: '2', subject: 'Mathematics', marks: 88, term: 'Term 1' },
-    { studentId: '2', subject: 'Science', marks: 95, term: 'Term 1' },
-  ]);
+  const [transactions, setTransactions] = useState<FeeTransaction[]>(() => {
+    try {
+      const raw = localStorage.getItem('erp_transactions');
+      if (raw) return JSON.parse(raw) as FeeTransaction[];
+    } catch (e) {
+      // ignore parse errors
+    }
+    return [];
+  });
+
+  // persist transactions to localStorage so payments survive a hard reload
+  useEffect(() => {
+    try {
+      localStorage.setItem('erp_transactions', JSON.stringify(transactions));
+    } catch (e) {
+      // ignore storage errors
+    }
+  }, [transactions]);
+
+  const [grades, setGrades] = useState<GradeEntry[]>(() => {
+    try {
+      const raw = localStorage.getItem('erp_grades');
+      if (raw) return JSON.parse(raw) as GradeEntry[];
+    } catch (e) {
+      // ignore
+    }
+    return [];
+  });
+
+  // (grades persisted via effect below)
+
+  // persist grades to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('erp_grades', JSON.stringify(grades));
+    } catch (e) {
+      // ignore
+    }
+  }, [grades]);
 
   const handleAddStudent = (student: Omit<Student, 'id'>) => {
     setStudents([...students, { ...student, id: Date.now().toString() }]);
@@ -150,67 +105,138 @@ function Router({ user }: { user: User }) {
     setTransactions([newTransaction, ...transactions]);
     return newTransaction;
   };
-
   const handleSaveGrades = (newGrades: GradeEntry[]) => {
-    const updatedGrades = [...grades];
-    newGrades.forEach(newGrade => {
-      const existingIndex = updatedGrades.findIndex(
-        g => g.studentId === newGrade.studentId && 
-             g.subject === newGrade.subject && 
-             g.term === newGrade.term
-      );
-      if (existingIndex >= 0) {
-        updatedGrades[existingIndex] = newGrade;
+    // Upsert grades by studentId + subject + term
+    const updated = [...grades];
+    newGrades.forEach(ng => {
+      const idx = updated.findIndex(g => g.studentId === ng.studentId && g.subject === ng.subject && g.term === ng.term);
+      if (idx >= 0) {
+        updated[idx] = ng;
       } else {
-        updatedGrades.push(newGrade);
+        updated.push(ng);
       }
     });
-    setGrades(updatedGrades);
+    setGrades(updated);
   };
 
-  const handleImportStudents = (importedStudents: Omit<Student, 'id'>[]) => {
-    // Skip duplicates by admissionNumber
-    const existingAdmissions = new Set(students.map(s => s.admissionNumber));
-    const now = Date.now();
+  const handleImportStudents = (imported: Omit<Student, 'id'>[]) => {
+    // Synchronously detect duplicates by admissionNumber and append new students.
+    const existing = new Set(students.map(s => s.admissionNumber));
+    const skippedAdmissionNumbers: string[] = [];
     const toAdd: Student[] = [];
-    const skipped: string[] = [];
-    importedStudents.forEach((s, idx) => {
-      if (existingAdmissions.has(s.admissionNumber)) {
-        skipped.push(s.admissionNumber);
-      } else {
-        toAdd.push({ ...s, id: (now + idx).toString() });
+    const now = Date.now();
+    let counter = 0;
+    for (const row of imported) {
+      if (!row.admissionNumber || !row.name) {
+        // invalid row -> skip
+        continue;
       }
-    });
-    if (toAdd.length > 0) setStudents([...students, ...toAdd]);
-    return { added: toAdd.length, skipped: skipped.length, skippedAdmissionNumbers: skipped };
+      if (existing.has(row.admissionNumber)) {
+        skippedAdmissionNumbers.push(row.admissionNumber);
+        continue;
+      }
+      counter += 1;
+      toAdd.push({ ...row, id: `${now}-${counter}` });
+      existing.add(row.admissionNumber);
+    }
+    if (toAdd.length) setStudents([...students, ...toAdd]);
+    return { added: toAdd.length, skipped: skippedAdmissionNumbers.length, skippedAdmissionNumbers };
   };
 
-  const handleImportGrades = (importedGrades: GradeEntry[]) => {
-    setGrades([...grades, ...importedGrades]);
+  const handleUpsertStudents = (imported: Omit<Student, 'id'>[]) => {
+    // Update existing students by admissionNumber; insert new ones if not found.
+    const byAdmission = new Map(students.map(s => [s.admissionNumber, s] as [string, Student]));
+    let updatedCount = 0;
+    const now = Date.now();
+    let counter = 0;
+    for (const row of imported) {
+      const existing = byAdmission.get(row.admissionNumber);
+      if (existing) {
+        byAdmission.set(row.admissionNumber, { ...existing, ...row });
+        updatedCount += 1;
+      } else {
+        counter += 1;
+        byAdmission.set(row.admissionNumber, { ...row, id: `${now}-${counter}` });
+      }
+    }
+    const newArray = Array.from(byAdmission.values());
+    setStudents(newArray);
+    return { updated: updatedCount };
   };
 
-  const handleUpsertStudents = (studentsToUpdate: Omit<Student, 'id'>[]) => {
-    let updated = 0;
-    setStudents(prev => {
-      const updatedArr = prev.map(s => {
-        const match = studentsToUpdate.find(u => u.admissionNumber === s.admissionNumber);
-        if (match) {
-          updated++;
-          // keep existing id, overwrite other fields
-          return { ...s, ...match, id: s.id };
-        }
-        return s;
+  const handleImportGrades = (imported: GradeEntry[]) => {
+    handleSaveGrades(imported);
+  };
+
+  const handleLoadDemoData = (count = 50) => {
+    // Generate demo students across grades 1-12 and sections A-C
+    const gradesList = Array.from({ length: 12 }, (_, i) => (i + 1).toString());
+    const sections = ['A', 'B', 'C'];
+    const demoStudents: Student[] = [];
+    const now = Date.now();
+    for (let i = 0; i < count; i++) {
+      const grade = gradesList[i % gradesList.length];
+      const section = sections[i % sections.length];
+      const admissionNumber = `S${new Date().getFullYear().toString().slice(-2)}-${String(i + 1).padStart(4, '0')}`;
+      demoStudents.push({
+        id: `${now}-${i}`,
+        admissionNumber,
+        name: `Student ${i + 1}`,
+        dateOfBirth: '2012-01-01',
+        admissionDate: new Date().toISOString().split('T')[0],
+        aadharNumber: '',
+        penNumber: '',
+        aaparId: '',
+        mobileNumber: '',
+        address: '',
+        grade,
+        section,
+        yearlyFeeAmount: (20000 + (parseInt(grade) * 1000)).toString()
       });
-      return updatedArr;
-    });
-    return { updated };
+    }
+
+    // simple demo transactions: a few payments per some students
+    const demoTransactions: any[] = [];
+    for (let i = 0; i < Math.min(80, count * 2); i++) {
+      const stu = demoStudents[i % demoStudents.length];
+      demoTransactions.push({
+        id: `t-${now}-${i}`,
+        studentId: stu.id,
+        studentName: stu.name,
+        amount: Math.floor(500 + Math.random() * 5000),
+        date: new Date(Date.now() - Math.floor(Math.random() * 1000 * 60 * 60 * 24 * 180)).toISOString().split('T')[0],
+        transactionId: `EX-${String(i + 1).padStart(6, '0')}`
+      });
+    }
+
+    // demo grades: random marks for some students
+    const demoGrades: GradeEntry[] = [];
+    const subjects = ['Mathematics', 'Science', 'English', 'History', 'Geography'];
+    const terms = ['Term 1', 'Term 2', 'Final'];
+    for (let i = 0; i < Math.min(200, count * subjects.length); i++) {
+      const stu = demoStudents[i % demoStudents.length];
+      demoGrades.push({
+        studentId: stu.id,
+        subject: subjects[i % subjects.length],
+        marks: Math.floor(40 + Math.random() * 60),
+        term: terms[i % terms.length]
+      });
+    }
+
+    setStudents(demoStudents);
+    setTransactions(demoTransactions as any);
+    setGrades(demoGrades);
   };
 
   const stats = {
     totalStudents: students.length,
-    pendingFees: 12500,
+    pendingFees: (() => {
+      const totalYearly = students.reduce((s, st) => s + (parseFloat(st.yearlyFeeAmount || '0') || 0), 0);
+      const paid = transactions.reduce((s, t) => s + (t.amount || 0), 0);
+      return Math.max(Math.round(totalYearly - paid), 0);
+    })(),
     gradesEntered: grades.length,
-    avgAttendance: 94
+    avgAttendance: 95,
   };
 
   return (
@@ -224,37 +250,32 @@ function Router({ user }: { user: User }) {
           onAddStudent={handleAddStudent}
           onEditStudent={handleEditStudent}
           onDeleteStudent={handleDeleteStudent}
-          isReadOnly={user.role === 'teacher'}
         />
       </Route>
-      {user.role === 'admin' && (
-        <>
-          <Route path="/fees">
-            <FeesPage
-              students={students}
-              transactions={transactions}
-              onAddTransaction={handleAddTransaction}
-            />
-          </Route>
-          <Route path="/reports">
-            <ReportsPage students={students} grades={grades} />
-          </Route>
-          <Route path="/data-tools">
-            <DataToolsPage
-              students={students}
-              onImportStudents={handleImportStudents}
-              onUpsertStudents={handleUpsertStudents}
-              onImportGrades={handleImportGrades}
-            />
-          </Route>
-        </>
-      )}
+      <Route path="/fees">
+        <FeesPage
+          students={students}
+          transactions={transactions}
+          onAddTransaction={handleAddTransaction}
+        />
+      </Route>
+      <Route path="/data-tools">
+        <DataToolsPage
+          students={students}
+          onImportStudents={handleImportStudents}
+          onUpsertStudents={handleUpsertStudents}
+          onImportGrades={handleImportGrades}
+        />
+      </Route>
       <Route path="/grades">
         <GradesPage
           students={students}
           grades={grades}
           onSaveGrades={handleSaveGrades}
         />
+      </Route>
+      <Route path="/reports">
+        <ReportsPage students={students} grades={grades} />
       </Route>
       <Route component={NotFound} />
     </Switch>

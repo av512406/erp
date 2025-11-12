@@ -20,7 +20,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileText } from "lucide-react";
 import PayslipModal from "./PayslipModal";
-import type { Student } from "./StudentsPage";
+import type { Student } from '@shared/schema';
 
 export interface FeeTransaction {
   id: string;
@@ -93,7 +93,7 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
                   <SelectContent>
                     {students.map((student) => (
                       <SelectItem key={student.id} value={student.id}>
-                        {student.name} ({student.studentId})
+                        {student.name} ({student.admissionNumber})
                       </SelectItem>
                     ))}
                   </SelectContent>

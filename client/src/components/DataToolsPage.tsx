@@ -47,6 +47,8 @@ interface DataToolsPageProps {
   // upsert existing students (update existing records by admissionNumber)
   onUpsertStudents: (students: Omit<Student, 'id'>[]) => { updated: number };
   onImportGrades: (grades: GradeEntry[]) => void;
+  // optional: load demo data (for admin/testing)
+  onLoadDemoData?: (count?: number) => void;
 }
 
 declare global {
@@ -55,7 +57,7 @@ declare global {
   }
 }
 
-export default function DataToolsPage({ students, onImportStudents, onUpsertStudents, onImportGrades }: DataToolsPageProps) {
+export default function DataToolsPage({ students, onImportStudents, onUpsertStudents, onImportGrades, onLoadDemoData }: DataToolsPageProps) {
   const [isImporting, setIsImporting] = useState(false);
   const [exportFilter, setExportFilter] = useState<string>("all");
   const [templateGrade, setTemplateGrade] = useState<string>("all");
@@ -180,6 +182,22 @@ export default function DataToolsPage({ students, onImportStudents, onUpsertStud
 
   return (
     <div className="container mx-auto p-6">
+      <div className="mb-4">
+        {/* Demo data loader for admins/testing. Shown when parent provides handler. */}
+        {typeof onLoadDemoData === 'function' && (
+          <div className="flex justify-end">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                const ok = confirm('Load demo data (adds ~50 sample students, transactions and grades) into your local app state? This will overwrite current in-memory lists.');
+                if (ok) onLoadDemoData();
+              }}
+            >
+              Load Demo Data
+            </Button>
+          </div>
+        )}
+      </div>
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">Data Tools</h1>
         <p className="text-muted-foreground">Import and export data in bulk</p>

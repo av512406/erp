@@ -7,12 +7,12 @@ export default function PayslipModalExample() {
   const [isOpen, setIsOpen] = useState(false);
 
   const mockTransaction: FeeTransaction = {
-    id: '1',
+    id: Date.now().toString(),
     studentId: '1',
-    studentName: 'John Doe',
-    amount: 500,
-    date: '2024-01-15',
-    transactionId: 'TXN001234'
+    studentName: 'Student 1',
+    amount: 0,
+    date: new Date().toISOString().split('T')[0],
+    transactionId: `EX-${Date.now().toString().slice(-6)}`
   };
 
   return (

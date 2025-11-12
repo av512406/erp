@@ -18,7 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { FileText, Printer } from "lucide-react";
-import type { Student } from "./StudentsPage";
+import type { Student } from '@shared/schema';
 import type { GradeEntry } from "./GradesPage";
 
 interface ReportsPageProps {
@@ -71,7 +71,7 @@ export default function ReportsPage({ students, grades }: ReportsPageProps) {
                 <SelectContent>
                   {students.map(student => (
                     <SelectItem key={student.id} value={student.id}>
-                      {student.name} ({student.studentId})
+                      {student.name} ({student.admissionNumber})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -127,7 +127,7 @@ export default function ReportsPage({ students, grades }: ReportsPageProps) {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Student ID</p>
-                <p className="font-mono font-semibold">{student.studentId}</p>
+                <p className="font-mono font-semibold">{student.admissionNumber}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Grade / Section</p>
