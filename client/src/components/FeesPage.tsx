@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,6 +44,30 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedPayslip, setSelectedPayslip] = useState<FeeTransaction | null>(null);
+  // New: class & section filters (dependencies order: choose class first, then section)
+  const [filterGrade, setFilterGrade] = useState<'all' | string>('all');
+  const [filterSection, setFilterSection] = useState<'all' | string>('all');
+
+  // Unique grades & sections (sections depend on selected grade)
+  const uniqueGrades = useMemo(() => Array.from(new Set(students.map(s => s.grade))).sort((a,b)=> Number(a)-Number(b)), [students]);
+  const uniqueSectionsForGrade = useMemo(() => {
+    const source = filterGrade === 'all' ? students : students.filter(s => s.grade === filterGrade);
+    return Array.from(new Set(source.map(s => s.section))).sort();
+  }, [students, filterGrade]);
+
+  // Filter students by grade then section
+  const filteredStudents = useMemo(() => {
+    return students.filter(s => {
+      const gradeOk = filterGrade === 'all' || s.grade === filterGrade;
+      const sectionOk = filterSection === 'all' || s.section === filterSection;
+      return gradeOk && sectionOk;
+    });
+  }, [students, filterGrade, filterSection]);
+
+  // If section becomes invalid after grade change, reset to 'all'
+  if (filterSection !== 'all' && !uniqueSectionsForGrade.includes(filterSection)) {
+    setFilterSection('all');
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,7 +89,14 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
 
   // compute viewed student's totals
   const viewedStudent = viewStudent === 'all' ? null : (students.find(s => s.id === viewStudent) || null);
-  const studentTransactions = viewStudent === 'all' ? [] : transactions.filter(t => t.studentId === viewStudent);
+  const studentTransactions = viewStudent === 'all'
+    ? []
+    : transactions.filter(t => t.studentId === viewStudent);
+  // When viewing all, still apply class/section filter to transactions list
+  const filteredTransactionIds = useMemo(() => new Set(filteredStudents.map(s => s.id)), [filteredStudents]);
+  const displayedTransactions = viewStudent === 'all'
+    ? transactions.filter(t => filteredTransactionIds.has(t.studentId))
+    : studentTransactions;
   const totalPaid = studentTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
   const yearlyFee = viewedStudent ? parseFloat((viewedStudent as any).yearlyFeeAmount || '0') : 0;
   const balance = yearlyFee - totalPaid;
@@ -129,13 +160,43 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
           </CardContent>
         </Card>
 
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-2">
           <Card>
             <CardHeader>
               <CardTitle>View Student</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="filter-grade">Class</Label>
+                    <Select value={filterGrade} onValueChange={(v) => setFilterGrade(v as any)}>
+                      <SelectTrigger id="filter-grade">
+                        <SelectValue placeholder="All classes" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All classes</SelectItem>
+                        {uniqueGrades.map(g => (
+                          <SelectItem key={g} value={g}>Class {g}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="filter-section">Section</Label>
+                    <Select value={filterSection} onValueChange={(v) => setFilterSection(v as any)}>
+                      <SelectTrigger id="filter-section">
+                        <SelectValue placeholder="All sections" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All sections</SelectItem>
+                        {uniqueSectionsForGrade.map(sec => (
+                          <SelectItem key={sec} value={sec}>Section {sec}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="view-student">Student</Label>
                   <Select value={viewStudent} onValueChange={setViewStudent}>
@@ -144,7 +205,7 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All students</SelectItem>
-                      {students.map((student) => (
+                      {filteredStudents.map((student) => (
                         <SelectItem key={student.id} value={student.id}>
                           {student.name} ({student.admissionNumber})
                         </SelectItem>
@@ -170,7 +231,7 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
           </Card>
         </div>
 
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-3">
           <Card>
             <CardHeader>
               <CardTitle>Payment History</CardTitle>
@@ -195,7 +256,7 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
                         </TableCell>
                       </TableRow>
                     ) : (
-                      (viewStudent ? studentTransactions : transactions).map((transaction) => (
+                      displayedTransactions.map((transaction) => (
                         <TableRow key={transaction.id} data-testid={`row-transaction-${transaction.id}`}>
                           <TableCell className="font-mono text-sm">{transaction.transactionId}</TableCell>
                           <TableCell className="font-medium">{transaction.studentName}</TableCell>
