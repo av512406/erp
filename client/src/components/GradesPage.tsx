@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,8 +34,6 @@ interface GradesPageProps {
   onSaveGrades: (grades: GradeEntry[]) => void;
 }
 
-const GRADES = ['9', '10', '11', '12'];
-const SECTIONS = ['A', 'B', 'C'];
 const SUBJECTS = ['Mathematics', 'Science', 'English', 'History', 'Geography'];
 const TERMS = ['Term 1', 'Term 2', 'Final'];
 
@@ -45,6 +43,25 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
   const [selectedSubject, setSelectedSubject] = useState("");
   const [selectedTerm, setSelectedTerm] = useState("");
   const [gradeInputs, setGradeInputs] = useState<Record<string, string>>({});
+
+  // derive unique classes and sections from provided students
+  const uniqueClasses = useMemo(() => (
+    Array.from(new Set(students.map(s => s.grade)))
+      .filter(Boolean)
+      .sort((a, b) => Number(a) - Number(b))
+  ), [students]);
+
+  const uniqueSectionsForClass = useMemo(() => {
+    const pool = selectedGrade ? students.filter(s => s.grade === selectedGrade) : students;
+    return Array.from(new Set(pool.map(s => s.section))).filter(Boolean).sort();
+  }, [students, selectedGrade]);
+
+  // keep section consistent with selected class
+  useEffect(() => {
+    if (selectedSection && !uniqueSectionsForClass.includes(selectedSection)) {
+      setSelectedSection("");
+    }
+  }, [uniqueSectionsForClass, selectedSection]);
 
   const filteredStudents = students.filter(
     s => s.grade === selectedGrade && s.section === selectedSection
@@ -81,7 +98,7 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${selectedGrade || 'grade'}-${selectedSection || 'section'}-${selectedSubject || 'subject'}-${selectedTerm || 'term'}-marks-template.csv`;
+  a.download = `${selectedGrade || 'class'}-${selectedSection || 'section'}-${selectedSubject || 'subject'}-${selectedTerm || 'term'}-marks-template.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -152,20 +169,20 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
                   <SelectValue placeholder="Select class" />
                 </SelectTrigger>
                 <SelectContent>
-                  {GRADES.map(grade => (
-                    <SelectItem key={grade} value={grade}>{grade}</SelectItem>
+                  {uniqueClasses.map(cls => (
+                    <SelectItem key={cls} value={cls}>{cls}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="section">Section</Label>
-              <Select value={selectedSection} onValueChange={setSelectedSection}>
+              <Select value={selectedSection} onValueChange={setSelectedSection} disabled={!selectedGrade}>
                 <SelectTrigger id="section" data-testid="select-section">
-                  <SelectValue placeholder="Select section" />
+                  <SelectValue placeholder={selectedGrade ? "Select section" : "Select class first"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {SECTIONS.map(section => (
+                  {uniqueSectionsForClass.map(section => (
                     <SelectItem key={section} value={section}>{section}</SelectItem>
                   ))}
                 </SelectContent>
@@ -281,7 +298,7 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
         <Card>
           <CardContent className="py-12">
             <p className="text-center text-muted-foreground">
-              Please select Grade, Section, Subject, and Term to enter marks
+              Please select Class, Section, Subject, and Term to enter marks
             </p>
           </CardContent>
         </Card>
