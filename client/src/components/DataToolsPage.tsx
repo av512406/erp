@@ -19,6 +19,24 @@ import {
 import type { Student } from "@shared/schema";
 import type { GradeEntry } from "./GradesPage";
 
+// Utility: consistently format date fields as YYYY-MM-DD for CSV (strip time if present)
+const formatCsvDate = (value: string | undefined | null): string => {
+  if (!value) return '';
+  // If already YYYY-MM-DD just return
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  // If ISO timestamp, take first 10 chars
+  if (/^\d{4}-\d{2}-\d{2}T/.test(value)) return value.slice(0, 10);
+  // Try Date parse fallback
+  const d = new Date(value);
+  if (!isNaN(d.getTime())) {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  return value; // leave as-is (will surface for correction)
+};
+
 interface ImportSummary {
   added: number;
   skipped: number;
@@ -37,16 +55,18 @@ type RawStudentRow = {
   address?: string;
   grade?: string;
   section?: string;
+  fatherName?: string; // added
+  motherName?: string; // added
   yearlyFeeAmount?: string;
 };
 
 interface DataToolsPageProps {
   students: Student[];
   // returns a summary of import (added/skipped)
-  onImportStudents: (students: Omit<Student, 'id'>[]) => ImportSummary;
+  onImportStudents: (students: Omit<Student, 'id'>[]) => Promise<ImportSummary> | ImportSummary;
   // upsert existing students (update existing records by admissionNumber)
-  onUpsertStudents: (students: Omit<Student, 'id'>[]) => { updated: number };
-  onImportGrades: (grades: GradeEntry[]) => void;
+  onUpsertStudents: (students: Omit<Student, 'id'>[]) => Promise<{ updated: number }> | { updated: number };
+  onImportGrades: (grades: GradeEntry[]) => Promise<void> | void;
   // optional: load demo data (for admin/testing)
   onLoadDemoData?: (count?: number) => void;
 }
@@ -82,26 +102,81 @@ export default function DataToolsPage({ students, onImportStudents, onUpsertStud
       const csv = event.target?.result as string;
       window.Papa.parse(csv, {
         header: true,
-        complete: (results: any) => {
+        complete: async (results: any) => {
+          const normalize = (val: any) => typeof val === 'string' ? val.trim() : (val ?? '');
+          const normalizeNumberString = (val: any) => {
+            const s = String(val ?? '').replace(/,/g, '').trim();
+            return s;
+          };
+          const excelSerialToDate = (num: number) => {
+            // Excel serial date: days since 1899-12-31 (with 1900 leap-year bug). Use 25569 offset to Unix epoch days.
+            // If the value is too small, return null.
+            if (!isFinite(num) || num <= 0) return null;
+            const epoch = new Date(Date.UTC(1899, 11, 30)); // Excel base
+            const ms = epoch.getTime() + Math.round(num) * 24 * 60 * 60 * 1000;
+            return new Date(ms);
+          };
+          const toYMD = (d: Date) => {
+            const y = d.getUTCFullYear();
+            const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(d.getUTCDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+          };
+          const normalizeDate = (raw: any) => {
+            const v = normalize(raw);
+            if (!v) return '';
+            // already YYYY-MM-DD
+            if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+            // Excel serial number
+            const asNum = Number(v);
+            if (!Number.isNaN(asNum) && /^(?:\d{5}|\d{4})$/.test(v)) {
+              const d = excelSerialToDate(asNum);
+              if (d) return toYMD(d);
+            }
+            // Try Date.parse for common formats like M/D/YYYY
+            const parsed = new Date(v);
+            if (!isNaN(parsed.getTime())) return toYMD(new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate())));
+            // Unable to parse -> return as-is; server may reject invalid
+            return v;
+          };
           const importedStudents = results.data
-            .filter((row: any) => row.admissionNumber && row.name)
-            .map((row: any) => ({
-              admissionNumber: row.admissionNumber,
-              name: row.name,
-              dateOfBirth: row.dateOfBirth,
-              admissionDate: row.admissionDate,
-              aadharNumber: row.aadharNumber,
-              penNumber: row.penNumber,
-              aaparId: row.aaparId,
-              mobileNumber: row.mobileNumber,
-              address: row.address,
-              grade: row.grade,
-              section: row.section,
-              yearlyFeeAmount: row.yearlyFeeAmount
-            }));
+            .filter((row: any) => (row.admissionNumber || row['Admission Number'] || row['AdmissionNo'] || row['Admission No'] || row['admission no']) && (row.name || row['Name']))
+            .map((row: any) => {
+              const admissionNumber = normalize(row.admissionNumber || row['Admission Number'] || row['AdmissionNo'] || row['Admission No'] || row['admission no']);
+              const name = normalize(row.name || row['Name']);
+              const dateOfBirth = normalizeDate(row.dateOfBirth || row['date of birth'] || row['Date of Birth'] || row['dob']);
+              const admissionDate = normalizeDate(row.admissionDate || row['Admission Date'] || row['admission date']);
+              const aadharNumber = normalize(row.aadharNumber || row['Aadhar Number'] || row['aadhar']);
+              const penNumber = normalize(row.penNumber || row['PEN Number'] || row['pen']);
+              const aaparId = normalize(row.aaparId || row['Aapar ID'] || row['aapar']);
+              const mobileNumber = normalize(row.mobileNumber || row['Mobile'] || row['Phone'] || row['mobile']);
+              const address = normalize(row.address || row['Address']);
+              const grade = normalize(row.grade || row['class'] || row['Class']);
+              const section = normalize(row.section || row['Section']);
+              const yfaRaw = row.yearlyFeeAmount ?? row['Yearly fees'] ?? row['Yearly Fees'] ?? row['yearly fees'] ?? row['Yearly_Fees'] ?? row['YearlyFee'] ?? row['yearlyFeeAmount'];
+              const yearlyFeeAmount = yfaRaw === undefined || yfaRaw === null ? '' : normalizeNumberString(yfaRaw);
+              const fatherName = normalize(row.fatherName || row["Father's Name"] || row['Father Name'] || row['father'] || row['Fathers Name']);
+              const motherName = normalize(row.motherName || row["Mother's Name"] || row['Mother Name'] || row['mother'] || row['Mothers Name']);
+              return {
+                admissionNumber,
+                name,
+                dateOfBirth,
+                admissionDate,
+                aadharNumber,
+                penNumber,
+                aaparId,
+                mobileNumber,
+                address,
+                grade,
+                section,
+                fatherName,
+                motherName,
+                yearlyFeeAmount,
+              };
+            });
           // keep a copy of raw parsed rows for review/export/upsert
           setLastImportedRows(importedStudents as RawStudentRow[]);
-          const summary = onImportStudents(importedStudents);
+          const summary = await onImportStudents(importedStudents);
           toast({
             title: "Import Finished",
             description: `Added ${summary.added} students, skipped ${summary.skipped} duplicates`,
@@ -159,10 +234,23 @@ export default function DataToolsPage({ students, onImportStudents, onUpsertStud
       : students.filter(s => s.grade === exportFilter);
 
     const csvContent = [
-      ['admissionNumber', 'name', 'dateOfBirth', 'admissionDate', 'aadharNumber', 'penNumber', 'aaparId', 'mobileNumber', 'address', 'grade', 'section', 'yearlyFeeAmount'].join(','),
-      ...filteredStudents.map(s => 
-        [s.admissionNumber, s.name, s.dateOfBirth, s.admissionDate, s.aadharNumber, s.penNumber, s.aaparId, s.mobileNumber, s.address, s.grade, s.section, s.yearlyFeeAmount].join(',')
-      )
+      ['admissionNumber','name','fatherName','motherName','dateOfBirth','admissionDate','aadharNumber','penNumber','aaparId','mobileNumber','address','grade','section','yearlyFeeAmount'].join(','),
+      ...filteredStudents.map(s => [
+        s.admissionNumber,
+        s.name,
+        s.fatherName || '',
+        s.motherName || '',
+        formatCsvDate(s.dateOfBirth),
+        formatCsvDate(s.admissionDate),
+        s.aadharNumber,
+        s.penNumber,
+        s.aaparId,
+        s.mobileNumber,
+        s.address,
+        s.grade,
+        s.section,
+        s.yearlyFeeAmount
+      ].join(','))
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -225,8 +313,23 @@ export default function DataToolsPage({ students, onImportStudents, onUpsertStud
               onClick={() => {
                 // export skipped rows as CSV if available
                 if (!skippedRows || skippedRows.length === 0) return;
-                const header = ['admissionNumber', 'name', 'dateOfBirth', 'admissionDate', 'aadharNumber', 'penNumber', 'aaparId', 'mobileNumber', 'address', 'grade', 'section', 'yearlyFeeAmount'];
-                const rows = skippedRows.map(r => [r.admissionNumber, `"${(r.name||'').replace(/"/g, '""') }"`, r.dateOfBirth || '', r.admissionDate || '', r.aadharNumber || '', r.penNumber || '', r.aaparId || '', r.mobileNumber || '', `"${(r.address||'').replace(/"/g,'""') }"`, r.grade || '', r.section || '', r.yearlyFeeAmount || ''].join(','));
+                const header = ['admissionNumber','name','fatherName','motherName','dateOfBirth','admissionDate','aadharNumber','penNumber','aaparId','mobileNumber','address','grade','section','yearlyFeeAmount'];
+                const rows = skippedRows.map(r => [
+                  r.admissionNumber,
+                  `"${(r.name||'').replace(/"/g, '""') }"`,
+                  r.fatherName || '',
+                  r.motherName || '',
+                  formatCsvDate(r.dateOfBirth || ''),
+                  formatCsvDate(r.admissionDate || ''),
+                  r.aadharNumber || '',
+                  r.penNumber || '',
+                  r.aaparId || '',
+                  r.mobileNumber || '',
+                  `"${(r.address||'').replace(/"/g,'""') }"`,
+                  r.grade || '',
+                  r.section || '',
+                  r.yearlyFeeAmount || ''
+                ].join(','));
                 const csv = [header.join(','), ...rows].join('\n');
                 const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
@@ -242,10 +345,10 @@ export default function DataToolsPage({ students, onImportStudents, onUpsertStud
               Export Skipped CSV
             </Button>
             <Button
-              onClick={() => {
+              onClick={async () => {
                 // upsert skipped rows (update existing records)
                 if (!skippedRows || skippedRows.length === 0) return;
-                const result = onUpsertStudents(skippedRows as any);
+                const result = await onUpsertStudents(skippedRows as any);
                 toast({ title: 'Upsert completed', description: `Updated ${result.updated} records` });
                 setSkippedAdmissions(null);
                 setSkippedRows(null);
@@ -297,8 +400,8 @@ export default function DataToolsPage({ students, onImportStudents, onUpsertStud
               />
             </div>
             <div className="text-sm text-muted-foreground">
-              <p className="font-medium mb-1">Expected columns:</p>
-              <p className="font-mono text-xs">admissionNumber, name, dateOfBirth, admissionDate, aadharNumber, penNumber, aaparId, mobileNumber, address, grade, section, yearlyFeeAmount</p>
+              <p className="font-medium mb-1">Accepted columns (case-insensitive):</p>
+              <p className="font-mono text-xs">admissionNumber, name, fatherName or "Father's Name", motherName or "Mother's Name", dateOfBirth, admissionDate, aadharNumber, penNumber, aaparId, mobileNumber, address, grade or class, section, yearlyFeeAmount or "Yearly fees"</p>
             </div>
             <div className="flex gap-2">
               <Button
@@ -317,9 +420,25 @@ export default function DataToolsPage({ students, onImportStudents, onUpsertStud
                 onClick={() => {
                   // generate template for selected templateGrade
                   const filtered = templateGrade === 'all' ? students : students.filter(s => s.grade === templateGrade);
-                  const header = ['admissionNumber', 'name', 'dateOfBirth', 'admissionDate', 'aadharNumber', 'penNumber', 'aaparId', 'mobileNumber', 'address', 'grade', 'section', 'yearlyFeeAmount'];
-                  const rows = filtered.length > 0 ? filtered.map(s => [s.admissionNumber, s.name, s.dateOfBirth, s.admissionDate, s.aadharNumber, s.penNumber, s.aaparId, s.mobileNumber, s.address, s.grade, s.section, s.yearlyFeeAmount].join(',')) : [['', '', '', '', '', '', '', '', '', '', '', ''].join(',')];
-                  const csv = [header.join(','), ...rows].join('\n');
+                  const header = ['admissionNumber','name','fatherName','motherName','dateOfBirth','admissionDate','aadharNumber','penNumber','aaparId','mobileNumber','address','grade','section','yearlyFeeAmount'];
+                  // Template with one sample row illustrating date format (YYYY-MM-DD)
+                  const sample = [
+                    'STU001',
+                    'Sample Student',
+                    'Sample Father Name',
+                    'Sample Mother Name',
+                    '2010-05-14', // dateOfBirth (YYYY-MM-DD)
+                    '2022-03-31', // admissionDate (YYYY-MM-DD)
+                    '1234-5678-9012',
+                    'PEN000001',
+                    'AAP001',
+                    '555-0100',
+                    '123 Sample Street',
+                    '10',
+                    'A',
+                    '25000'
+                  ].join(',');
+                  const csv = [header.join(','), sample].join('\n');
                   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');

@@ -41,6 +41,8 @@ export default function StudentFormModal({
     address: '',
     grade: '',
     section: '',
+    fatherName: '',
+    motherName: '',
     yearlyFeeAmount: ''
   });
 
@@ -58,6 +60,8 @@ export default function StudentFormModal({
         address: student.address,
         grade: student.grade,
         section: student.section,
+        fatherName: (student as any).fatherName || '',
+        motherName: (student as any).motherName || '',
         yearlyFeeAmount: student.yearlyFeeAmount
       });
     } else {
@@ -73,6 +77,8 @@ export default function StudentFormModal({
         address: '',
         grade: '',
         section: '',
+        fatherName: '',
+        motherName: '',
         yearlyFeeAmount: ''
       });
     }
@@ -118,6 +124,28 @@ export default function StudentFormModal({
                   required
                   data-testid="input-dob"
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="fatherName">Father's Name</Label>
+                  <Input
+                    id="fatherName"
+                    value={formData.fatherName}
+                    onChange={(e) => setFormData({ ...formData, fatherName: e.target.value })}
+                    data-testid="input-father-name"
+                    placeholder="Father's full name"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="motherName">Mother's Name</Label>
+                  <Input
+                    id="motherName"
+                    value={formData.motherName}
+                    onChange={(e) => setFormData({ ...formData, motherName: e.target.value })}
+                    data-testid="input-mother-name"
+                    placeholder="Mother's full name"
+                  />
+                </div>
               </div>
             </fieldset>
 

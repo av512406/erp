@@ -1,17 +1,48 @@
 import type { Express } from 'express';
 import { createServer, type Server } from 'http';
-import { pool, ensureTables, genId } from './db';
-import { insertStudentSchema, insertGradeSchema } from '../shared/schema';
+import { pool, ensureTables, genId, genTransactionId } from './db';
+import { insertStudentSchema, insertGradeSchema, insertFeeTransactionSchema } from '../shared/schema';
 import { ZodError } from 'zod';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // ensure DB tables exist (helpful for local Docker)
   await ensureTables();
 
+  // helper mappers
+  function mapStudent(row: any) {
+    return {
+      id: row.id,
+      admissionNumber: row.admission_number,
+      name: row.name,
+      dateOfBirth: row.date_of_birth,
+      admissionDate: row.admission_date,
+      aadharNumber: row.aadhar_number,
+      penNumber: row.pen_number,
+      aaparId: row.aapar_id,
+      mobileNumber: row.mobile_number,
+      address: row.address,
+      grade: row.grade,
+      section: row.section,
+      fatherName: row.father_name,
+      motherName: row.mother_name,
+      yearlyFeeAmount: row.yearly_fee_amount?.toString?.() ?? row.yearly_fee_amount
+    };
+  }
+
+  function mapGrade(row: any) {
+    return {
+      id: row.id,
+      studentId: row.student_id,
+      subject: row.subject,
+      marks: parseFloat(row.marks),
+      term: row.term,
+    };
+  }
+
   // Students APIs
   app.get('/api/students', async (_req, res) => {
     const { rows } = await pool.query('SELECT * FROM students ORDER BY admission_number');
-    res.json(rows);
+    res.json(rows.map(mapStudent));
   });
 
   app.post('/api/students', async (req, res) => {
@@ -22,11 +53,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if ((exists.rowCount ?? 0) > 0) return res.status(409).json({ message: 'admissionNumber exists' });
       const id = genId();
       const q = await pool.query(
-        `INSERT INTO students (id, admission_number, name, date_of_birth, admission_date, aadhar_number, pen_number, aapar_id, mobile_number, address, grade, section, yearly_fee_amount)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
-        [id, data.admissionNumber, data.name, data.dateOfBirth, data.admissionDate, data.aadharNumber || null, data.penNumber || null, data.aaparId || null, data.mobileNumber || null, data.address || null, data.grade || null, data.section || null, data.yearlyFeeAmount]
+        `INSERT INTO students (id, admission_number, name, date_of_birth, admission_date, aadhar_number, pen_number, aapar_id, mobile_number, address, grade, section, father_name, mother_name, yearly_fee_amount)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+        [id, data.admissionNumber, data.name, data.dateOfBirth, data.admissionDate, data.aadharNumber || null, data.penNumber || null, data.aaparId || null, data.mobileNumber || null, data.address || null, data.grade || null, data.section || null, (data as any).fatherName || null, (data as any).motherName || null, data.yearlyFeeAmount]
       );
-      res.status(201).json(q.rows[0]);
+  res.status(201).json(mapStudent(q.rows[0]));
     } catch (e) {
       if (e instanceof ZodError) return res.status(400).json({ message: 'validation', issues: e.format() });
       console.error(e);
@@ -50,9 +81,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sets.push(`${col} = $${i + 1}`);
         values.push((data as any)[k]);
       });
-      if (sets.length === 0) return res.json(existing.rows[0]);
+  if (sets.length === 0) return res.json(mapStudent(existing.rows[0]));
       const q = await pool.query(`UPDATE students SET ${sets.join(', ')} WHERE admission_number = $${sets.length + 1} RETURNING *`, [...values, admissionNumber]);
-      res.json(q.rows[0]);
+  res.json(mapStudent(q.rows[0]));
     } catch (e) {
       if (e instanceof ZodError) return res.status(400).json({ message: 'validation', issues: e.format() });
       console.error(e);
@@ -63,7 +94,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/students/:id', async (req, res) => {
     const id = req.params.id;
     await pool.query('DELETE FROM students WHERE id = $1', [id]);
-    res.json({ deleted: id });
+  res.json({ deleted: id });
   });
 
   // bulk import: supports strategy=skip|upsert
@@ -84,8 +115,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (strategy === 'upsert') {
               // update
               await client.query(
-                `UPDATE students SET name=$1, date_of_birth=$2, admission_date=$3, aadhar_number=$4, pen_number=$5, aapar_id=$6, mobile_number=$7, address=$8, grade=$9, section=$10, yearly_fee_amount=$11 WHERE admission_number=$12`,
-                [data.name, data.dateOfBirth, data.admissionDate, data.aadharNumber || null, data.penNumber || null, data.aaparId || null, data.mobileNumber || null, data.address || null, data.grade || null, data.section || null, data.yearlyFeeAmount, data.admissionNumber]
+                `UPDATE students SET name=$1, date_of_birth=$2, admission_date=$3, aadhar_number=$4, pen_number=$5, aapar_id=$6, mobile_number=$7, address=$8, grade=$9, section=$10, father_name=$11, mother_name=$12, yearly_fee_amount=$13 WHERE admission_number=$14`,
+                [data.name, data.dateOfBirth, data.admissionDate, data.aadharNumber || null, data.penNumber || null, data.aaparId || null, data.mobileNumber || null, data.address || null, data.grade || null, data.section || null, (data as any).fatherName || null, (data as any).motherName || null, data.yearlyFeeAmount, data.admissionNumber]
               );
               updated++;
             } else {
@@ -94,8 +125,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } else {
             const id = genId();
             await client.query(
-              `INSERT INTO students (id, admission_number, name, date_of_birth, admission_date, aadhar_number, pen_number, aapar_id, mobile_number, address, grade, section, yearly_fee_amount) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-              [id, data.admissionNumber, data.name, data.dateOfBirth, data.admissionDate, data.aadharNumber || null, data.penNumber || null, data.aaparId || null, data.mobileNumber || null, data.address || null, data.grade || null, data.section || null, data.yearlyFeeAmount]
+              `INSERT INTO students (id, admission_number, name, date_of_birth, admission_date, aadhar_number, pen_number, aapar_id, mobile_number, address, grade, section, father_name, mother_name, yearly_fee_amount) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+              [id, data.admissionNumber, data.name, data.dateOfBirth, data.admissionDate, data.aadharNumber || null, data.penNumber || null, data.aaparId || null, data.mobileNumber || null, data.address || null, data.grade || null, data.section || null, (data as any).fatherName || null, (data as any).motherName || null, data.yearlyFeeAmount]
             );
             added.push(data.admissionNumber);
           }
@@ -104,7 +135,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       await client.query('COMMIT');
-      res.json({ added: added.length, skipped: skipped.length, skippedAdmissionNumbers: skipped, updated });
+  res.json({ added: added.length, skipped: skipped.length, skippedAdmissionNumbers: skipped, updated });
     } catch (e) {
       await client.query('ROLLBACK');
       console.error(e);
@@ -117,7 +148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Grades APIs
   app.get('/api/grades', async (_req, res) => {
     const { rows } = await pool.query('SELECT * FROM grades');
-    res.json(rows);
+    res.json(rows.map(mapGrade));
   });
 
   // upsert grades in bulk
@@ -142,7 +173,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       await client.query('COMMIT');
-      res.json({ updated: incoming.length });
+  res.json({ updated: incoming.length });
     } catch (e) {
       await client.query('ROLLBACK');
       console.error(e);
@@ -150,6 +181,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } finally {
       client.release();
     }
+  });
+
+  // Fee Transactions APIs
+  app.get('/api/fees', async (_req, res) => {
+    const { rows } = await pool.query(`
+      SELECT f.id, f.student_id as "studentId", f.transaction_id as "transactionId", f.amount, f.payment_date as "paymentDate", f.payment_mode as "paymentMode", f.remarks,
+             s.name as "studentName"
+      FROM fee_transactions f
+      JOIN students s ON s.id = f.student_id
+      ORDER BY f.payment_date DESC, f.id DESC
+    `);
+    // adapt shape for frontend expectations (amount number, date field)
+    const mapped = rows.map(r => ({
+      id: r.id,
+      studentId: r.studentId,
+      studentName: r.studentName,
+      amount: parseFloat(r.amount),
+      date: r.paymentDate, // frontend uses 'date'
+      transactionId: r.transactionId,
+      paymentMode: r.paymentMode,
+      remarks: r.remarks || ''
+    }));
+    res.json(mapped);
+  });
+
+  app.post('/api/fees', async (req, res) => {
+    try {
+      const data = insertFeeTransactionSchema.parse(req.body);
+      // basic validation ensure student exists
+      const exists = await pool.query('SELECT id, name FROM students WHERE id=$1', [data.studentId]);
+      if ((exists.rowCount ?? 0) === 0) return res.status(404).json({ message: 'student not found' });
+      const id = genId();
+      const transactionId = genTransactionId();
+      const q = await pool.query(
+        `INSERT INTO fee_transactions (id, student_id, transaction_id, amount, payment_date, payment_mode, remarks) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [id, data.studentId, transactionId, data.amount, data.paymentDate, data.paymentMode || null, data.remarks || null]
+      );
+      const row = q.rows[0];
+      res.status(201).json({
+        id: row.id,
+        studentId: row.student_id,
+        studentName: exists.rows[0].name,
+        amount: parseFloat(row.amount),
+        date: row.payment_date,
+        transactionId: row.transaction_id,
+        paymentMode: row.payment_mode,
+        remarks: row.remarks || ''
+      });
+    } catch (e) {
+      if (e instanceof ZodError) return res.status(400).json({ message: 'validation', issues: e.format() });
+      console.error(e);
+      res.status(500).json({ message: 'internal error' });
+    }
+  });
+
+  app.delete('/api/fees/:id', async (req, res) => {
+    const id = req.params.id;
+    await pool.query('DELETE FROM fee_transactions WHERE id=$1', [id]);
+    res.json({ deleted: id });
   });
 
   const httpServer = createServer(app);

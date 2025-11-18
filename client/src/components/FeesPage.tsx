@@ -35,7 +35,7 @@ interface FeesPageProps {
   students: Student[];
   transactions: FeeTransaction[];
   // returns the created transaction (with id and transactionId)
-  onAddTransaction: (transaction: Omit<FeeTransaction, 'id' | 'transactionId'>) => FeeTransaction;
+  onAddTransaction: (transaction: Omit<FeeTransaction, 'id' | 'transactionId'>) => Promise<FeeTransaction> | FeeTransaction;
 }
 
 export default function FeesPage({ students, transactions, onAddTransaction }: FeesPageProps) {
@@ -45,11 +45,11 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedPayslip, setSelectedPayslip] = useState<FeeTransaction | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const student = students.find(s => s.id === selectedStudent);
     if (student) {
-      const created = onAddTransaction({
+      const created = await onAddTransaction({
         studentId: student.id,
         studentName: student.name,
         amount: parseFloat(amount),

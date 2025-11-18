@@ -24,148 +24,142 @@ interface User {
 
 function Router({ user }: { user: User }) {
   const [, setLocation] = useLocation();
-  const [students, setStudents] = useState<Student[]>(() => {
-    try {
-      const raw = localStorage.getItem('erp_students');
-      if (raw) return JSON.parse(raw) as Student[];
-    } catch (e) {
-      // ignore parse errors
-    }
-    // start with an empty student list by default
-    return [];
-  });
-
-  // persist students to localStorage
+  const [students, setStudents] = useState<Student[]>([]);
+  // initial load from backend
   useEffect(() => {
-    try {
-      localStorage.setItem('erp_students', JSON.stringify(students));
-    } catch (e) {
-      // ignore storage errors
-    }
-  }, [students]);
+    (async () => {
+      try {
+        const res = await fetch('/api/students');
+        if (res.ok) {
+          const data = await res.json();
+          setStudents(data);
+        }
+      } catch (e) { /* network error ignored */ }
+    })();
+  }, []);
 
-  const [transactions, setTransactions] = useState<FeeTransaction[]>(() => {
-    try {
-      const raw = localStorage.getItem('erp_transactions');
-      if (raw) return JSON.parse(raw) as FeeTransaction[];
-    } catch (e) {
-      // ignore parse errors
-    }
-    return [];
-  });
-
-  // persist transactions to localStorage so payments survive a hard reload
+  const [transactions, setTransactions] = useState<FeeTransaction[]>([]);
   useEffect(() => {
-    try {
-      localStorage.setItem('erp_transactions', JSON.stringify(transactions));
-    } catch (e) {
-      // ignore storage errors
-    }
-  }, [transactions]);
+    (async () => {
+      try {
+        const res = await fetch('/api/fees');
+        if (res.ok) {
+          const data = await res.json();
+          setTransactions(data);
+        }
+      } catch (e) { /* ignore */ }
+    })();
+  }, []);
 
-  const [grades, setGrades] = useState<GradeEntry[]>(() => {
-    try {
-      const raw = localStorage.getItem('erp_grades');
-      if (raw) return JSON.parse(raw) as GradeEntry[];
-    } catch (e) {
-      // ignore
-    }
-    return [];
-  });
-
-  // (grades persisted via effect below)
-
-  // persist grades to localStorage
+  const [grades, setGrades] = useState<GradeEntry[]>([]);
   useEffect(() => {
-    try {
-      localStorage.setItem('erp_grades', JSON.stringify(grades));
-    } catch (e) {
-      // ignore
-    }
-  }, [grades]);
+    (async () => {
+      try {
+        const res = await fetch('/api/grades');
+        if (res.ok) {
+          const data = await res.json();
+          setGrades(data);
+        }
+      } catch (e) { /* ignore */ }
+    })();
+  }, []);
 
-  const handleAddStudent = (student: Omit<Student, 'id'>) => {
-    setStudents([...students, { ...student, id: Date.now().toString() }]);
+  const handleAddStudent = async (student: Omit<Student, 'id'>) => {
+    try {
+      const res = await fetch('/api/students', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(student) });
+      if (res.ok) {
+        const created = await res.json();
+        setStudents(prev => [...prev, created]);
+      }
+    } catch (e) { /* ignore */ }
   };
 
-  const handleEditStudent = (id: string, student: Omit<Student, 'id'>) => {
-    setStudents(students.map(s => s.id === id ? { ...student, id } : s));
+  const handleEditStudent = async (id: string, student: Omit<Student, 'id'>) => {
+    // need admissionNumber for PUT endpoint
+    const existing = students.find(s => s.id === id);
+    if (!existing) return;
+    try {
+      const res = await fetch(`/api/students/${encodeURIComponent(existing.admissionNumber)}` , { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(student) });
+      if (res.ok) {
+        const updated = await res.json();
+        setStudents(prev => prev.map(s => s.id === id ? updated : s));
+      }
+    } catch (e) { /* ignore */ }
   };
 
-  const handleDeleteStudent = (id: string) => {
-    setStudents(students.filter(s => s.id !== id));
+  const handleDeleteStudent = async (id: string) => {
+    try {
+      const res = await fetch(`/api/students/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (res.ok) setStudents(prev => prev.filter(s => s.id !== id));
+    } catch (e) { /* ignore */ }
   };
 
-  const handleAddTransaction = (transaction: Omit<FeeTransaction, 'id' | 'transactionId'>) => {
-    const newTransaction = {
-      ...transaction,
+  const handleAddTransaction = async (transaction: Omit<FeeTransaction, 'id' | 'transactionId'>) => {
+    try {
+      const res = await fetch('/api/fees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        studentId: transaction.studentId,
+        amount: transaction.amount,
+        paymentDate: transaction.date,
+        paymentMode: 'cash',
+        remarks: ''
+      }) });
+      if (res.ok) {
+        const created = await res.json();
+        setTransactions(prev => [created, ...prev]);
+        return created as FeeTransaction;
+      }
+    } catch (e) { /* ignore */ }
+    // fallback optimistic local object
+    const optimistic: FeeTransaction = {
       id: Date.now().toString(),
-      transactionId: `TXN${Math.random().toString().slice(2, 8)}`
+      studentId: transaction.studentId,
+      studentName: transaction.studentName,
+      amount: transaction.amount,
+      date: transaction.date,
+      transactionId: 'TEMP' + Math.random().toString().slice(2,8)
     };
-    setTransactions([newTransaction, ...transactions]);
-    return newTransaction;
+    setTransactions(prev => [optimistic, ...prev]);
+    return optimistic;
   };
-  const handleSaveGrades = (newGrades: GradeEntry[]) => {
-    // Upsert grades by studentId + subject + term
-    const updated = [...grades];
-    newGrades.forEach(ng => {
-      const idx = updated.findIndex(g => g.studentId === ng.studentId && g.subject === ng.subject && g.term === ng.term);
-      if (idx >= 0) {
-        updated[idx] = ng;
-      } else {
-        updated.push(ng);
+  const handleSaveGrades = async (newGrades: GradeEntry[]) => {
+    try {
+      const res = await fetch('/api/grades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newGrades) });
+      if (res.ok) {
+        // refresh grades from server
+        const refreshed = await fetch('/api/grades').then(r => r.json());
+        setGrades(refreshed);
       }
-    });
-    setGrades(updated);
+    } catch (e) { /* ignore */ }
   };
 
-  const handleImportStudents = (imported: Omit<Student, 'id'>[]) => {
-    // Synchronously detect duplicates by admissionNumber and append new students.
-    const existing = new Set(students.map(s => s.admissionNumber));
-    const skippedAdmissionNumbers: string[] = [];
-    const toAdd: Student[] = [];
-    const now = Date.now();
-    let counter = 0;
-    for (const row of imported) {
-      if (!row.admissionNumber || !row.name) {
-        // invalid row -> skip
-        continue;
+  const handleImportStudents = async (imported: Omit<Student, 'id'>[]) => {
+    try {
+      const res = await fetch('/api/students/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ students: imported, strategy: 'skip' }) });
+      if (res.ok) {
+        const summary = await res.json();
+        const refreshed = await fetch('/api/students').then(r => r.json());
+        setStudents(refreshed);
+        return { added: summary.added, skipped: summary.skipped, skippedAdmissionNumbers: summary.skippedAdmissionNumbers };
       }
-      if (existing.has(row.admissionNumber)) {
-        skippedAdmissionNumbers.push(row.admissionNumber);
-        continue;
-      }
-      counter += 1;
-      toAdd.push({ ...row, id: `${now}-${counter}` });
-      existing.add(row.admissionNumber);
-    }
-    if (toAdd.length) setStudents([...students, ...toAdd]);
-    return { added: toAdd.length, skipped: skippedAdmissionNumbers.length, skippedAdmissionNumbers };
+    } catch (e) { /* ignore */ }
+    return { added: 0, skipped: 0, skippedAdmissionNumbers: [] };
   };
 
-  const handleUpsertStudents = (imported: Omit<Student, 'id'>[]) => {
-    // Update existing students by admissionNumber; insert new ones if not found.
-    const byAdmission = new Map(students.map(s => [s.admissionNumber, s] as [string, Student]));
-    let updatedCount = 0;
-    const now = Date.now();
-    let counter = 0;
-    for (const row of imported) {
-      const existing = byAdmission.get(row.admissionNumber);
-      if (existing) {
-        byAdmission.set(row.admissionNumber, { ...existing, ...row });
-        updatedCount += 1;
-      } else {
-        counter += 1;
-        byAdmission.set(row.admissionNumber, { ...row, id: `${now}-${counter}` });
+  const handleUpsertStudents = async (imported: Omit<Student, 'id'>[]) => {
+    try {
+      const res = await fetch('/api/students/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ students: imported, strategy: 'upsert' }) });
+      if (res.ok) {
+        const summary = await res.json();
+        const refreshed = await fetch('/api/students').then(r => r.json());
+        setStudents(refreshed);
+        return { updated: summary.updated };
       }
-    }
-    const newArray = Array.from(byAdmission.values());
-    setStudents(newArray);
-    return { updated: updatedCount };
+    } catch (e) { /* ignore */ }
+    return { updated: 0 };
   };
 
-  const handleImportGrades = (imported: GradeEntry[]) => {
-    handleSaveGrades(imported);
+  const handleImportGrades = async (imported: GradeEntry[]) => {
+    await handleSaveGrades(imported);
   };
 
   const handleLoadDemoData = (count = 50) => {

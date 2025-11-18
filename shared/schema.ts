@@ -30,6 +30,8 @@ export const students = pgTable("students", {
   address: text("address").notNull(),
   grade: text("grade").notNull(),
   section: text("section").notNull(),
+  fatherName: text("father_name"),
+  motherName: text("mother_name"),
   yearlyFeeAmount: decimal("yearly_fee_amount", { precision: 10, scale: 2 }).notNull(),
 });
 
@@ -60,6 +62,7 @@ export type Teacher = typeof teachers.$inferSelect;
 export const feeTransactions = pgTable("fee_transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   studentId: varchar("student_id").notNull().references(() => students.id),
+  transactionId: text("transaction_id").notNull().unique(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   paymentDate: date("payment_date").notNull(),
   paymentMode: text("payment_mode").notNull(),
@@ -68,6 +71,7 @@ export const feeTransactions = pgTable("fee_transactions", {
 
 export const insertFeeTransactionSchema = createInsertSchema(feeTransactions).omit({
   id: true,
+  transactionId: true, // server generates unique transactionId
 });
 
 export type InsertFeeTransaction = z.infer<typeof insertFeeTransactionSchema>;

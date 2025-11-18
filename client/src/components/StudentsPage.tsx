@@ -159,7 +159,7 @@ export default function StudentsPage({
                   <TableCell>{student.grade}</TableCell>
                   <TableCell>{student.section}</TableCell>
                   <TableCell className="font-mono text-sm">{student.mobileNumber}</TableCell>
-                  <TableCell>₹{parseFloat(student.yearlyFeeAmount).toLocaleString('en-IN')}</TableCell>
+                  <TableCell>₹{(Number(student.yearlyFeeAmount) || 0).toLocaleString('en-IN')}</TableCell>
                   {!isReadOnly && (
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">

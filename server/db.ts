@@ -24,12 +24,15 @@ export async function ensureTables() {
         address text,
         grade text,
         section text,
+        father_name text,
+        mother_name text,
         yearly_fee_amount numeric(10,2) NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS fee_transactions (
         id text PRIMARY KEY,
         student_id text NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+        transaction_id text UNIQUE NOT NULL,
         amount numeric(10,2) NOT NULL,
         payment_date date NOT NULL,
         payment_mode text,
@@ -43,6 +46,14 @@ export async function ensureTables() {
         marks numeric(5,2) NOT NULL,
         term text NOT NULL
       );
+
+      -- add transaction_id column if upgrading existing schema
+      ALTER TABLE fee_transactions ADD COLUMN IF NOT EXISTS transaction_id text UNIQUE;
+      -- backfill any null transaction_id values
+      UPDATE fee_transactions SET transaction_id = concat('TXN', substr(md5(random()::text),1,8)) WHERE transaction_id IS NULL;
+      -- add parent name columns if missing
+      ALTER TABLE students ADD COLUMN IF NOT EXISTS father_name text;
+      ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_name text;
     `);
   } finally {
     client.release();
@@ -51,6 +62,10 @@ export async function ensureTables() {
 
 export function genId() {
   return randomUUID();
+}
+
+export function genTransactionId() {
+  return 'TXN' + randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase();
 }
 
 // optional helper to run ad-hoc SQL from file (not used here but handy)
