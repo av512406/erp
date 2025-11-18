@@ -89,9 +89,9 @@ export default function StudentsPage({
       </div>
 
       <div className="mb-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:flex-wrap">
+          <div className="relative w-full md:max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search by name or admission number..."
               value={searchTerm}
@@ -100,10 +100,10 @@ export default function StudentsPage({
               data-testid="input-search-students"
             />
           </div>
-          <div>
-            <Label htmlFor="filter-grade">Filter by Class</Label>
+          <div className="flex-1 md:max-w-xs">
+            <Label htmlFor="filter-grade" className="text-xs font-medium">Filter by Class</Label>
             <Select value={filterGrade} onValueChange={setFilterGrade}>
-              <SelectTrigger id="filter-grade">
+              <SelectTrigger id="filter-grade" className="mt-1">
                 <SelectValue placeholder="All classes" />
               </SelectTrigger>
               <SelectContent>
@@ -114,10 +114,10 @@ export default function StudentsPage({
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <Label htmlFor="filter-section">Filter by Section</Label>
+          <div className="flex-1 md:max-w-xs">
+            <Label htmlFor="filter-section" className="text-xs font-medium">Filter by Section</Label>
             <Select value={filterSection} onValueChange={setFilterSection}>
-              <SelectTrigger id="filter-section">
+              <SelectTrigger id="filter-section" className="mt-1">
                 <SelectValue placeholder="All sections" />
               </SelectTrigger>
               <SelectContent>
@@ -147,7 +147,7 @@ export default function StudentsPage({
           <TableBody>
             {filteredStudents.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={isReadOnly ? 6 : 7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={isReadOnly ? 6 : 7} className="text-center py-8 text-muted-foreground">
                   No students found
                 </TableCell>
               </TableRow>
@@ -201,3 +201,4 @@ export default function StudentsPage({
     </div>
   );
 }
+
