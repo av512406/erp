@@ -187,7 +187,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/fees', async (_req, res) => {
     const { rows } = await pool.query(`
       SELECT f.id, f.student_id as "studentId", f.transaction_id as "transactionId", f.amount, f.payment_date as "paymentDate", f.payment_mode as "paymentMode", f.remarks,
-             s.name as "studentName"
+             s.name as "studentName", f.created_at as "createdAt", f.updated_at as "updatedAt"
       FROM fee_transactions f
       JOIN students s ON s.id = f.student_id
       ORDER BY f.payment_date DESC, f.id DESC
@@ -201,7 +201,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       date: r.paymentDate, // frontend uses 'date'
       transactionId: r.transactionId,
       paymentMode: r.paymentMode,
-      remarks: r.remarks || ''
+      remarks: r.remarks || '',
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt
     }));
     res.json(mapped);
   });
@@ -209,6 +211,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/fees', async (req, res) => {
     try {
       const data = insertFeeTransactionSchema.parse(req.body);
+      const amt = parseFloat((data as any).amount);
+      if (!isFinite(amt) || amt <= 0) {
+        return res.status(400).json({ message: 'amount must be greater than 0' });
+      }
       // basic validation ensure student exists
       const exists = await pool.query('SELECT id, name FROM students WHERE id=$1', [data.studentId]);
       if ((exists.rowCount ?? 0) === 0) return res.status(404).json({ message: 'student not found' });
@@ -216,7 +222,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const transactionId = genTransactionId();
       const q = await pool.query(
         `INSERT INTO fee_transactions (id, student_id, transaction_id, amount, payment_date, payment_mode, remarks) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-        [id, data.studentId, transactionId, data.amount, data.paymentDate, data.paymentMode || null, data.remarks || null]
+        [id, data.studentId, transactionId, data.amount, data.paymentDate, data.paymentMode, data.remarks || null]
       );
       const row = q.rows[0];
       res.status(201).json({
@@ -227,7 +233,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         date: row.payment_date,
         transactionId: row.transaction_id,
         paymentMode: row.payment_mode,
-        remarks: row.remarks || ''
+        remarks: row.remarks || '',
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
       });
     } catch (e) {
       if (e instanceof ZodError) return res.status(400).json({ message: 'validation', issues: e.format() });

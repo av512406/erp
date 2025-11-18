@@ -95,33 +95,24 @@ function Router({ user }: { user: User }) {
   };
 
   const handleAddTransaction = async (transaction: Omit<FeeTransaction, 'id' | 'transactionId'>) => {
-    try {
-      const res = await fetch('/api/fees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+    const res = await fetch('/api/fees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         studentId: transaction.studentId,
-        amount: transaction.amount,
+        amount: String(transaction.amount),
         paymentDate: transaction.date,
         paymentMode: transaction.paymentMode || 'cash',
         remarks: transaction.remarks || ''
-      }) });
-      if (res.ok) {
-        const created = await res.json();
-        setTransactions(prev => [created, ...prev]);
-        return created as FeeTransaction;
-      }
-    } catch (e) { /* ignore */ }
-    // fallback optimistic local object
-    const optimistic: FeeTransaction = {
-      id: Date.now().toString(),
-      studentId: transaction.studentId,
-      studentName: transaction.studentName,
-      amount: transaction.amount,
-      date: transaction.date,
-      transactionId: 'TEMP' + Math.random().toString().slice(2,8),
-      paymentMode: transaction.paymentMode || 'cash',
-      remarks: transaction.remarks || ''
-    };
-    setTransactions(prev => [optimistic, ...prev]);
-    return optimistic;
+      })
+    });
+    if (!res.ok) {
+      const msg = await (async () => { try { const j = await res.json(); return j?.message || 'Failed to record payment'; } catch { return 'Failed to record payment'; } })();
+      throw new Error(msg);
+    }
+    const created = await res.json();
+    setTransactions(prev => [created, ...prev]);
+    return created as FeeTransaction;
   };
   const handleSaveGrades = async (newGrades: GradeEntry[]) => {
     try {

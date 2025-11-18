@@ -49,6 +49,7 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
   const [selectedPayslip, setSelectedPayslip] = useState<FeeTransaction | null>(null);
   const [paymentMode, setPaymentMode] = useState<string>('cash');
   const [remarks, setRemarks] = useState<string>('');
+  const [submitError, setSubmitError] = useState<string | null>(null);
   // New: class & section filters (dependencies order: choose class first, then section)
   const [filterGrade, setFilterGrade] = useState<'all' | string>('all');
   const [filterSection, setFilterSection] = useState<'all' | string>('all');
@@ -78,21 +79,26 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
     e.preventDefault();
     const student = students.find(s => s.id === selectedStudent);
     if (student) {
-      const created = await onAddTransaction({
-        studentId: student.id,
-        studentName: student.name,
-        amount: parseFloat(amount),
-        date,
-        paymentMode,
-        remarks
-      });
-      // open payslip for the newly created transaction
-      setSelectedPayslip(created);
-      setSelectedStudent("");
-      setAmount("");
-      setDate(new Date().toISOString().split('T')[0]);
-      setPaymentMode('cash');
-      setRemarks('');
+      try {
+        setSubmitError(null);
+        const created = await onAddTransaction({
+          studentId: student.id,
+          studentName: student.name,
+          amount: parseFloat(amount),
+          date,
+          paymentMode,
+          remarks
+        });
+        // open payslip for the newly created transaction
+        setSelectedPayslip(created);
+        setSelectedStudent("");
+        setAmount("");
+        setDate(new Date().toISOString().split('T')[0]);
+        setPaymentMode('cash');
+        setRemarks('');
+      } catch (err: any) {
+        setSubmitError(err?.message || 'Failed to record payment');
+      }
     }
   };
 
@@ -191,6 +197,9 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
               <Button type="submit" className="w-full" data-testid="button-record-payment">
                 Record Payment
               </Button>
+              {submitError && (
+                <p className="text-sm text-red-600" role="alert">{submitError}</p>
+              )}
             </form>
           </CardContent>
         </Card>
