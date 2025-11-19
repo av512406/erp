@@ -4,6 +4,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useToast } from "@/hooks/use-toast";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/components/LoginPage";
 import Navigation from "@/components/Navigation";
@@ -25,6 +26,7 @@ interface User {
 
 function Router({ user }: { user: User }) {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const [students, setStudents] = useState<Student[]>([]);
   // initial load from backend
   useEffect(() => {
@@ -53,6 +55,7 @@ function Router({ user }: { user: User }) {
   }, []);
 
   const [grades, setGrades] = useState<GradeEntry[]>([]);
+  const [savingGrades, setSavingGrades] = useState(false);
   useEffect(() => {
     (async () => {
       try {
@@ -116,14 +119,50 @@ function Router({ user }: { user: User }) {
     return created as FeeTransaction;
   };
   const handleSaveGrades = async (newGrades: GradeEntry[]) => {
+    setSavingGrades(true);
     try {
-      const res = await fetch('/api/grades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newGrades) });
+      // Some DB/validation layers expect numeric/decimal fields as strings
+      // (see server/schema). Send marks as strings to avoid Zod/Drizzle parsing errors.
+      const payloadToSend = newGrades.map(g => ({ ...g, marks: String(g.marks) }));
+
+      const res = await fetch('/api/grades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadToSend) });
       if (res.ok) {
-        // refresh grades from server
-        const refreshed = await fetch('/api/grades').then(r => r.json());
-        setGrades(refreshed);
+        const payload = await res.json();
+        if (Array.isArray(payload.grades)) {
+          // merge: replace existing rows with same (studentId, subject, term) or append
+          setGrades(prev => {
+            const key = (g: GradeEntry) => `${g.studentId}::${g.subject}::${g.term}`;
+            const incomingMap = new Map<string, GradeEntry>();
+            payload.grades.forEach((g: GradeEntry) => incomingMap.set(key(g), g));
+            const merged = prev.filter(g => !incomingMap.has(key(g)));
+            incomingMap.forEach(g => merged.push(g));
+            return merged;
+          });
+        } else {
+          // fallback full refresh
+          const refreshed = await fetch('/api/grades').then(r => r.json());
+          setGrades(refreshed);
+        }
+        toast({
+          title: "Grades saved successfully",
+          description: `Updated ${payload.updated || 0} grade entries.`,
+        });
+      } else {
+        toast({
+          title: "Failed to save grades",
+          description: "Please try again.",
+          variant: "destructive",
+        });
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      toast({
+        title: "Error saving grades",
+        description: "Network error occurred.",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingGrades(false);
+    }
   };
 
   const handleImportStudents = async (imported: Omit<Student, 'id'>[]) => {
@@ -265,6 +304,7 @@ function Router({ user }: { user: User }) {
           students={students}
           grades={grades}
           onSaveGrades={handleSaveGrades}
+          saving={savingGrades}
         />
       </Route>
       <Route path="/reports">

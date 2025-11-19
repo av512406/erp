@@ -166,6 +166,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      const keys: { studentId: string; subject: string; term: string }[] = [];
       for (const g of incoming) {
         try {
           const data = insertGradeSchema.parse(g);
@@ -176,12 +177,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const id = genId();
             await client.query('INSERT INTO grades (id, student_id, subject, marks, term) VALUES ($1,$2,$3,$4,$5)', [id, data.studentId, data.subject, data.marks, data.term]);
           }
+          keys.push({ studentId: data.studentId, subject: data.subject, term: data.term });
         } catch (e) {
           // skip invalid row
         }
       }
       await client.query('COMMIT');
-  res.json({ updated: incoming.length });
+      // fetch updated rows
+      if (keys.length === 0) return res.json({ updated: 0, grades: [] });
+      const conditions = keys.map((k, i) => `(student_id=$${i*3+1} AND subject=$${i*3+2} AND term=$${i*3+3})`).join(' OR ');
+      const params: any[] = [];
+      keys.forEach(k => { params.push(k.studentId, k.subject, k.term); });
+      const refreshed = await pool.query(`SELECT * FROM grades WHERE ${conditions}` , params);
+      res.json({ updated: keys.length, grades: refreshed.rows.map(mapGrade) });
     } catch (e) {
       await client.query('ROLLBACK');
       console.error(e);

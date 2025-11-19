@@ -32,11 +32,12 @@ interface GradesPageProps {
   students: Student[];
   grades: GradeEntry[];
   onSaveGrades: (grades: GradeEntry[]) => void;
+  saving?: boolean;
 }
 
 const TERMS = ['Term 1', 'Term 2', 'Final'];
 
-export default function GradesPage({ students, grades, onSaveGrades }: GradesPageProps) {
+export default function GradesPage({ students, grades, onSaveGrades, saving = false }: GradesPageProps) {
   const [selectedGrade, setSelectedGrade] = useState("");
   const [selectedSection, setSelectedSection] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("");
@@ -95,12 +96,21 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
   };
 
   const handleSave = () => {
-    const newGrades: GradeEntry[] = filteredStudents.map(student => ({
-      studentId: student.id,
-      subject: selectedSubject,
-      marks: parseFloat(gradeInputs[student.id] || '0'),
-      term: selectedTerm
-    }));
+    const newGrades: GradeEntry[] = filteredStudents.map(student => {
+      const existingGrade = grades.find(
+        g => g.studentId === student.id && g.subject === selectedSubject && g.term === selectedTerm
+      );
+      const raw = gradeInputs[student.id];
+      const marks = raw !== undefined && raw !== ''
+        ? parseFloat(raw)
+        : (existingGrade ? existingGrade.marks : 0);
+      return {
+        studentId: student.id,
+        subject: selectedSubject,
+        marks,
+        term: selectedTerm
+      };
+    });
     onSaveGrades(newGrades);
     setGradeInputs({});
   };
@@ -282,9 +292,9 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
                 <Upload className="w-4 h-4" />
                 Import CSV
               </Button>
-              <Button onClick={handleSave} className="gap-2" data-testid="button-save-grades">
+              <Button onClick={handleSave} className="gap-2" data-testid="button-save-grades" disabled={saving}>
                 <Save className="w-4 h-4" />
-                Save Class Marks
+                {saving ? "Saving..." : "Save Class Marks"}
               </Button>
             </div>
           </CardHeader>
@@ -322,8 +332,8 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
                               min="0"
                               max="100"
                               className="max-w-24 ml-auto"
-                              placeholder={existingGrade ? existingGrade.marks.toString() : "0"}
-                              value={gradeInputs[student.id] || ''}
+                              value={gradeInputs[student.id] ?? (existingGrade ? existingGrade.marks.toString() : '')}
+                              placeholder="0"
                               onChange={(e) => handleMarksChange(student.id, e.target.value)}
                               data-testid={`input-marks-${student.id}`}
                             />
