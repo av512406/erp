@@ -364,7 +364,7 @@ export default function DataToolsPage({ students, onImportStudents, onUpsertStud
         </AlertDialogContent>
       </AlertDialog>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
             <CardTitle>Import Students</CardTitle>
@@ -533,18 +533,61 @@ export default function DataToolsPage({ students, onImportStudents, onUpsertStud
                 </SelectContent>
               </Select>
             </div>
-            <Button
-              className="w-full gap-2"
-              onClick={handleExportStudents}
-              disabled={students.length === 0}
-              data-testid="button-export-students"
-            >
-              <Download className="w-4 h-4" />
-              {exportFilter === "all" 
-                ? `Download CSV (${students.length} students)` 
-                : `Download CSV (${students.filter(s => s.grade === exportFilter).length} students)`
-              }
-            </Button>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <Button
+                className="w-full gap-2"
+                onClick={handleExportStudents}
+                disabled={students.length === 0}
+                data-testid="button-export-students"
+              >
+                <Download className="w-4 h-4" />
+                Students CSV
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full gap-2"
+                onClick={async () => {
+                  try {
+                    const resp = await fetch('/api/export/transactions');
+                    if (!resp.ok) throw new Error('Failed');
+                    const blob = await resp.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `transactions-export-${new Date().toISOString().split('T')[0]}.csv`;
+                    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+                  } catch (e:any) {
+                    toast({ title: 'Export error', description: e.message, variant: 'destructive' });
+                  }
+                }}
+                data-testid="button-export-transactions"
+              >
+                <Download className="w-4 h-4" />
+                Transactions CSV
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full gap-2"
+                onClick={async () => {
+                  try {
+                    const resp = await fetch('/api/export/grades');
+                    if (!resp.ok) throw new Error('Failed');
+                    const blob = await resp.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `grades-export-${new Date().toISOString().split('T')[0]}.csv`;
+                    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+                  } catch (e:any) {
+                    toast({ title: 'Export error', description: e.message, variant: 'destructive' });
+                  }
+                }}
+                data-testid="button-export-grades"
+              >
+                <Download className="w-4 h-4" />
+                Grades CSV
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

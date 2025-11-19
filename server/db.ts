@@ -6,9 +6,19 @@ const DATABASE_URL = process.env.DATABASE_URL || 'postgres://school_erp:school_e
 
 export const pool = new Pool({ connectionString: DATABASE_URL });
 
-export async function ensureTables() {
-  // create minimal tables if missing (safe for local/dev)
-  const client = await pool.connect();
+export async function ensureTables(retries = 8, delayMs = 1000) {
+  // Attempt connection with simple retry to handle 57P03 (database starting up)
+  let client;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      client = await pool.connect();
+      break;
+    } catch (e: any) {
+      if (attempt === retries || e?.code !== '57P03') throw e;
+      await new Promise(r => setTimeout(r, delayMs * (attempt + 1))); // linear backoff
+    }
+  }
+  if (!client) throw new Error('Could not obtain DB connection');
   try {
     await client.query(`
       CREATE TABLE IF NOT EXISTS students (
@@ -55,6 +65,13 @@ export async function ensureTables() {
 
       -- add transaction_id column if upgrading existing schema
       ALTER TABLE fee_transactions ADD COLUMN IF NOT EXISTS transaction_id text UNIQUE;
+  -- ensure timestamp columns exist for legacy tables
+  ALTER TABLE fee_transactions ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+  ALTER TABLE fee_transactions ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+  ALTER TABLE students ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+  ALTER TABLE students ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+  ALTER TABLE grades ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+  ALTER TABLE grades ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
       -- backfill any null transaction_id values
       UPDATE fee_transactions SET transaction_id = concat('TXN', substr(md5(random()::text),1,8)) WHERE transaction_id IS NULL;
       -- add parent name columns if missing

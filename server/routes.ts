@@ -250,6 +250,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ deleted: id });
   });
 
+  // --- Export Endpoints (CSV) ---
+  app.get('/api/export/students', async (_req, res) => {
+    try {
+      const { rows } = await pool.query('SELECT * FROM students ORDER BY admission_number');
+      const header = ['admissionNumber','name','fatherName','motherName','dateOfBirth','admissionDate','aadharNumber','penNumber','aaparId','mobileNumber','address','class','section','yearlyFeeAmount'];
+      const csvRows = rows.map(r => [
+        r.admission_number,
+        escapeCsv(r.name),
+        escapeCsv(r.father_name || ''),
+        escapeCsv(r.mother_name || ''),
+        r.date_of_birth,
+        r.admission_date,
+        escapeCsv(r.aadhar_number || ''),
+        escapeCsv(r.pen_number || ''),
+        escapeCsv(r.aapar_id || ''),
+        escapeCsv(r.mobile_number || ''),
+        escapeCsv(r.address || ''),
+        escapeCsv(r.grade || ''),
+        escapeCsv(r.section || ''),
+        r.yearly_fee_amount?.toString?.() ?? r.yearly_fee_amount
+      ].join(','));
+      const csv = [header.join(','), ...csvRows].join('\n');
+      res.setHeader('Content-Type','text/csv');
+      res.setHeader('Content-Disposition',`attachment; filename="students-export-${new Date().toISOString().split('T')[0]}.csv"`);
+      res.send(csv);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ message: 'failed to export students' });
+    }
+  });
+
+  app.get('/api/export/transactions', async (_req, res) => {
+    try {
+      const { rows } = await pool.query(`
+        SELECT f.transaction_id, f.amount, f.payment_date, f.payment_mode, f.remarks, s.admission_number, s.name
+        FROM fee_transactions f JOIN students s ON s.id = f.student_id
+        ORDER BY f.payment_date DESC, f.id DESC`);
+      const header = ['admissionNumber','studentName','transactionId','amount','paymentDate','paymentMode','remarks'];
+      const csvRows = rows.map(r => [
+        r.admission_number,
+        escapeCsv(r.name),
+        r.transaction_id,
+        r.amount?.toString?.() ?? r.amount,
+        r.payment_date,
+        r.payment_mode,
+        escapeCsv(r.remarks || '')
+      ].join(','));
+      const csv = [header.join(','), ...csvRows].join('\n');
+      res.setHeader('Content-Type','text/csv');
+      res.setHeader('Content-Disposition',`attachment; filename="transactions-export-${new Date().toISOString().split('T')[0]}.csv"`);
+      res.send(csv);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ message: 'failed to export transactions' });
+    }
+  });
+
+  app.get('/api/export/grades', async (_req, res) => {
+    try {
+      const { rows } = await pool.query(`
+        SELECT g.subject, g.marks, g.term, s.admission_number
+        FROM grades g JOIN students s ON s.id = g.student_id
+        ORDER BY s.admission_number`);
+      const header = ['admissionNumber','subject','term','marks'];
+      const csvRows = rows.map(r => [
+        r.admission_number,
+        escapeCsv(r.subject),
+        escapeCsv(r.term),
+        r.marks?.toString?.() ?? r.marks
+      ].join(','));
+      const csv = [header.join(','), ...csvRows].join('\n');
+      res.setHeader('Content-Type','text/csv');
+      res.setHeader('Content-Disposition',`attachment; filename="grades-export-${new Date().toISOString().split('T')[0]}.csv"`);
+      res.send(csv);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ message: 'failed to export grades' });
+    }
+  });
+
+  function escapeCsv(value: string) {
+    if (value == null) return '';
+    const needsQuotes = /[",\n]/.test(value);
+    let v = value.replace(/"/g, '""');
+    return needsQuotes ? '"' + v + '"' : v;
+  }
+
   const httpServer = createServer(app);
   return httpServer;
 }

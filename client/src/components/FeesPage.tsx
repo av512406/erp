@@ -81,10 +81,17 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
     if (student) {
       try {
         setSubmitError(null);
+        // preserve exact entered amount (no implicit numeric spinner adjustments)
+        const raw = amount.trim();
+        if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) {
+          setSubmitError('Enter a valid amount (up to 2 decimals)');
+          return;
+        }
         const created = await onAddTransaction({
           studentId: student.id,
           studentName: student.name,
-          amount: parseFloat(amount),
+          // use Number on validated raw string to avoid float artifacts like 19999.99
+          amount: Number(raw),
           date,
           paymentMode,
           remarks
@@ -149,10 +156,13 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
                 <Label htmlFor="amount">Amount (₹)</Label>
                 <Input
                   id="amount"
-                  type="number"
-                  step="0.01"
+                  // use text to remove native up/down controls; rely on regex validation above
+                  type="text"
+                  inputMode="decimal"
+                  pattern="\d+(?:\.\d{1,2})?"
+                  placeholder="e.g. 20000 or 1234.50"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
                   required
                   data-testid="input-amount"
                 />
