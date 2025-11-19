@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -49,12 +49,35 @@ export default function ReportsPage({ students, grades }: ReportsPageProps) {
   };
 
   const student = students.find(s => s.id === selectedStudent);
-  const studentGrades = grades.filter(
-    g => g.studentId === selectedStudent && g.term === selectedTerm
-  );
+  const [classSubjects, setClassSubjects] = useState<string[]>([]);
+  useEffect(() => {
+    if (!student) { setClassSubjects([]); return; }
+    (async () => {
+      try {
+        const res = await fetch(`/api/classes/${encodeURIComponent(student.grade)}/subjects`);
+        if (res.ok) {
+          const data: { name: string }[] = await res.json();
+          setClassSubjects(data.map(d => d.name));
+        } else setClassSubjects([]);
+      } catch {
+        setClassSubjects([]);
+      }
+    })();
+  }, [student]);
 
-  const total = studentGrades.reduce((sum, g) => sum + g.marks, 0);
-  const average = studentGrades.length > 0 ? (total / studentGrades.length).toFixed(2) : '0';
+  const gradeMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const g of grades) {
+      if (g.studentId === selectedStudent && g.term === selectedTerm) {
+        map.set(g.subject, g.marks);
+      }
+    }
+    return map;
+  }, [grades, selectedStudent, selectedTerm]);
+
+  const reportRows = classSubjects.map(sub => ({ subject: sub, marks: gradeMap.get(sub) }));
+  const total = reportRows.reduce((sum, r) => sum + (r.marks ?? 0), 0);
+  const average = reportRows.length > 0 ? (total / reportRows.length).toFixed(2) : '0';
 
   return (
     <div className="container mx-auto p-6">
@@ -237,7 +260,7 @@ export default function ReportsPage({ students, grades }: ReportsPageProps) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {studentGrades.length === 0 ? (
+                  {reportRows.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
                         No grades available for this term
@@ -245,17 +268,17 @@ export default function ReportsPage({ students, grades }: ReportsPageProps) {
                     </TableRow>
                   ) : (
                     <>
-                      {studentGrades.map((grade, index) => (
+                      {reportRows.map((row, index) => (
                         <TableRow key={index}>
-                          <TableCell className="font-medium">{grade.subject}</TableCell>
-                          <TableCell className="text-right font-semibold">{grade.marks}</TableCell>
+                          <TableCell className="font-medium">{row.subject}</TableCell>
+                          <TableCell className="text-right font-semibold">{row.marks ?? ''}</TableCell>
                           <TableCell className="text-right">100</TableCell>
                         </TableRow>
                       ))}
                       <TableRow className="bg-muted/50">
                         <TableCell className="font-semibold">Total</TableCell>
                         <TableCell className="text-right font-bold">{total}</TableCell>
-                        <TableCell className="text-right font-semibold">{studentGrades.length * 100}</TableCell>
+                        <TableCell className="text-right font-semibold">{reportRows.length * 100}</TableCell>
                       </TableRow>
                       <TableRow className="bg-primary/10">
                         <TableCell className="font-semibold">Average</TableCell>

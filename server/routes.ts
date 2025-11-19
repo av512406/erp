@@ -284,6 +284,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Class-subject assignments
+  // List all classes (grades) from students and class_subjects for UI selection
+  app.get('/api/classes', async (_req, res) => {
+    const { rows } = await pool.query(`
+      SELECT DISTINCT grade FROM (
+        SELECT grade FROM students WHERE grade IS NOT NULL
+        UNION
+        SELECT grade FROM class_subjects
+      ) t
+      WHERE grade IS NOT NULL AND grade <> ''
+      ORDER BY grade
+    `);
+    res.json(rows.map(r => r.grade));
+  });
+
   app.get('/api/classes/:grade/subjects', async (req, res) => {
     const grade = req.params.grade;
     const { rows } = await pool.query(
@@ -291,6 +305,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
       [grade]
     );
     res.json(rows.map(mapSubject));
+  });
+
+  // Bulk sync: copy all subjects from a source class to all classes
+  app.post('/api/classes/:grade/sync-all', async (req, res) => {
+    const sourceGrade = req.params.grade;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // fetch subject ids for source grade
+      const src = await client.query(`SELECT subject_id FROM class_subjects WHERE grade=$1`, [sourceGrade]);
+      const subjectIds: string[] = src.rows.map((r: any) => r.subject_id);
+      if (subjectIds.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: 'no subjects assigned to source class' });
+      }
+      // fetch all grades
+      const gradesRes = await client.query(`
+        SELECT DISTINCT grade FROM (
+          SELECT grade FROM students WHERE grade IS NOT NULL
+          UNION
+          SELECT grade FROM class_subjects
+        ) t WHERE grade IS NOT NULL AND grade <> ''
+      `);
+      const allGrades: string[] = gradesRes.rows.map((r: any) => r.grade);
+      // insert for each grade
+      let inserted = 0;
+      for (const g of allGrades) {
+        for (const sid of subjectIds) {
+          const id = genId();
+          try {
+            await client.query(
+              `INSERT INTO class_subjects (id, grade, subject_id) VALUES ($1,$2,$3)
+               ON CONFLICT (grade, subject_id) DO NOTHING`,
+              [id, g, sid]
+            );
+            inserted++;
+          } catch {}
+        }
+      }
+      await client.query('COMMIT');
+      res.json({ syncedFrom: sourceGrade, grades: allGrades.length, subjects: subjectIds.length, inserted });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      console.error(e);
+      res.status(500).json({ message: 'sync failed' });
+    } finally {
+      client.release();
+    }
   });
 
   app.post('/api/classes/:grade/subjects', async (req, res) => {

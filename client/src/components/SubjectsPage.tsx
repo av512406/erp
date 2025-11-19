@@ -31,9 +31,34 @@ export default function SubjectsPage({ students }: SubjectsPageProps) {
     })();
   }, []);
 
+  // Classes list comes from API (union of students + class_subjects)
+  const [allGrades, setAllGrades] = useState<string[]>([]);
+  const [selectedGrade, setSelectedGrade] = useState<string>("");
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/classes');
+        if (res.ok) {
+          const data: string[] = await res.json();
+          setAllGrades(data);
+          setSelectedGrade(prev => prev || data[0] || "");
+        } else {
+          // fallback from students if API not available
+          const fallback = Array.from(new Set(students.map(s => s.grade))).filter(Boolean) as string[];
+          fallback.sort((a,b) => (parseInt(a) || 0) - (parseInt(b) || 0));
+          setAllGrades(fallback);
+          setSelectedGrade(prev => prev || fallback[0] || "");
+        }
+      } catch {
+        const fallback = Array.from(new Set(students.map(s => s.grade))).filter(Boolean) as string[];
+        fallback.sort((a,b) => (parseInt(a) || 0) - (parseInt(b) || 0));
+        setAllGrades(fallback);
+        setSelectedGrade(prev => prev || fallback[0] || "");
+      }
+    })();
+  }, [students]);
+
   // Current class→subjects, fetched per selected grade from API
-  const allGrades = useMemo(() => Array.from(new Set(students.map(s => s.grade))).sort((a,b) => Number(a) - Number(b)), [students]);
-  const [selectedGrade, setSelectedGrade] = useState<string>(allGrades[0] || "1");
   const [assigned, setAssigned] = useState<Subject[]>([]);
   useEffect(() => {
     if (!selectedGrade) return;
@@ -81,6 +106,7 @@ export default function SubjectsPage({ students }: SubjectsPageProps) {
   const [subjectToAssign, setSubjectToAssign] = useState<string>("");
   const assignedIds = new Set(assigned.map(s => s.id));
   const assignable = subjects.filter(s => !assignedIds.has(s.id));
+  const [syncingAll, setSyncingAll] = useState(false);
 
   const handleAssign = () => {
     if (!subjectToAssign) return;
@@ -170,7 +196,45 @@ export default function SubjectsPage({ students }: SubjectsPageProps) {
         {/* Class assignments */}
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Assign Subjects to Class</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>Assign Subjects to Class</CardTitle>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!selectedGrade || assigned.length === 0 || syncingAll || allGrades.length === 0}
+                  onClick={async () => {
+                    if (!selectedGrade || assigned.length === 0) return;
+                    setSyncingAll(true);
+                    try {
+                      const res = await fetch(`/api/classes/${encodeURIComponent(selectedGrade)}/sync-all`, { method: 'POST' });
+                      if (!res.ok) {
+                        // fallback client-side sync if server endpoint unavailable
+                        for (const g of allGrades) {
+                          for (const s of assigned) {
+                            await fetch(`/api/classes/${encodeURIComponent(g)}/subjects`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ subjectId: s.id })
+                            });
+                          }
+                        }
+                      }
+                      // refresh current grade's assignments
+                      try {
+                        const r = await fetch(`/api/classes/${encodeURIComponent(selectedGrade)}/subjects`);
+                        if (r.ok) setAssigned(await r.json());
+                      } catch {}
+                      window.alert('Synced subjects to all classes');
+                    } finally {
+                      setSyncingAll(false);
+                    }
+                  }}
+                >
+                  Sync this class's subjects to all classes
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

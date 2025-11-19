@@ -34,7 +34,6 @@ interface GradesPageProps {
   onSaveGrades: (grades: GradeEntry[]) => void;
 }
 
-const SUBJECTS = ['Mathematics', 'Science', 'English', 'History', 'Geography'];
 const TERMS = ['Term 1', 'Term 2', 'Final'];
 
 export default function GradesPage({ students, grades, onSaveGrades }: GradesPageProps) {
@@ -43,6 +42,8 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
   const [selectedSubject, setSelectedSubject] = useState("");
   const [selectedTerm, setSelectedTerm] = useState("");
   const [gradeInputs, setGradeInputs] = useState<Record<string, string>>({});
+  const [classSubjects, setClassSubjects] = useState<string[]>([]);
+  const [loadingSubjects, setLoadingSubjects] = useState(false);
 
   // derive unique classes and sections from provided students
   const uniqueClasses = useMemo(() => (
@@ -62,6 +63,28 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
       setSelectedSection("");
     }
   }, [uniqueSectionsForClass, selectedSection]);
+
+  // Load subjects for selected class
+  useEffect(() => {
+    setSelectedSubject("");
+    if (!selectedGrade) { setClassSubjects([]); return; }
+    (async () => {
+      setLoadingSubjects(true);
+      try {
+        const res = await fetch(`/api/classes/${encodeURIComponent(selectedGrade)}/subjects`);
+        if (res.ok) {
+          const data: { id:string; code:string; name:string }[] = await res.json();
+          setClassSubjects(data.map(d => d.name));
+        } else {
+          setClassSubjects([]);
+        }
+      } catch {
+        setClassSubjects([]);
+      } finally {
+        setLoadingSubjects(false);
+      }
+    })();
+  }, [selectedGrade]);
 
   const filteredStudents = students.filter(
     s => s.grade === selectedGrade && s.section === selectedSection
@@ -206,14 +229,18 @@ export default function GradesPage({ students, grades, onSaveGrades }: GradesPag
             </div>
             <div className="space-y-2">
               <Label htmlFor="subject">Subject</Label>
-              <Select value={selectedSubject} onValueChange={setSelectedSubject}>
+              <Select value={selectedSubject} onValueChange={setSelectedSubject} disabled={!selectedGrade || loadingSubjects}>
                 <SelectTrigger id="subject" data-testid="select-subject">
-                  <SelectValue placeholder="Select subject" />
+                  <SelectValue placeholder={loadingSubjects ? "Loading subjects..." : (selectedGrade ? "Select subject" : "Select class first")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {SUBJECTS.map(subject => (
-                    <SelectItem key={subject} value={subject}>{subject}</SelectItem>
-                  ))}
+                  {classSubjects.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">No subjects configured for this class</div>
+                  ) : (
+                    classSubjects.map(subject => (
+                      <SelectItem key={subject} value={subject}>{subject}</SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
