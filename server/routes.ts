@@ -44,6 +44,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       id: row.id,
       code: row.code,
       name: row.name,
+      maxMarks: row.max_marks !== undefined ? (row.max_marks !== null ? parseFloat(row.max_marks) : null) : undefined,
     };
   }
 
@@ -309,7 +310,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/classes/:grade/subjects', async (req, res) => {
     const grade = req.params.grade;
     const { rows } = await pool.query(
-      `SELECT s.* FROM class_subjects cs JOIN subjects s ON s.id = cs.subject_id WHERE cs.grade=$1 ORDER BY s.name`,
+      `SELECT s.*, cs.max_marks FROM class_subjects cs JOIN subjects s ON s.id = cs.subject_id WHERE cs.grade=$1 ORDER BY s.name`,
       [grade]
     );
     res.json(rows.map(mapSubject));
@@ -365,15 +366,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/classes/:grade/subjects', async (req, res) => {
     const grade = req.params.grade;
-    const { subjectId } = req.body as { subjectId: string };
+    const { subjectId, maxMarks } = req.body as { subjectId: string; maxMarks?: number };
     if (!subjectId) return res.status(400).json({ message: 'subjectId required' });
     const id = genId();
     try {
-      await pool.query('INSERT INTO class_subjects (id, grade, subject_id) VALUES ($1,$2,$3)', [id, grade, subjectId]);
-      res.status(201).json({ id, grade, subjectId });
+      await pool.query('INSERT INTO class_subjects (id, grade, subject_id, max_marks) VALUES ($1,$2,$3,$4)', [id, grade, subjectId, maxMarks ?? null]);
+      res.status(201).json({ id, grade, subjectId, maxMarks: maxMarks ?? null });
     } catch (e) {
       if ((e as any)?.code === '23505') return res.status(409).json({ message: 'already assigned' });
       res.status(500).json({ message: 'failed to assign' });
+    }
+  });
+
+  // Update max marks for a class-subject assignment
+  app.put('/api/classes/:grade/subjects/:subjectId', async (req, res) => {
+    const grade = req.params.grade;
+    const subjectId = req.params.subjectId;
+    const { maxMarks } = req.body as { maxMarks?: number };
+    try {
+      const q = await pool.query('UPDATE class_subjects SET max_marks=$1 WHERE grade=$2 AND subject_id=$3 RETURNING *', [maxMarks ?? null, grade, subjectId]);
+      if ((q.rowCount ?? 0) === 0) return res.status(404).json({ message: 'assignment not found' });
+      res.json({ grade, subjectId, maxMarks: q.rows[0].max_marks });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ message: 'failed to update' });
     }
   });
 

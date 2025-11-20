@@ -77,6 +77,7 @@ export async function ensureTables(retries = 8, delayMs = 1000) {
         id text PRIMARY KEY,
         grade text NOT NULL,
         subject_id text NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        max_marks numeric(6,2),
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now(),
         UNIQUE(grade, subject_id)
@@ -96,6 +97,7 @@ export async function ensureTables(retries = 8, delayMs = 1000) {
   ALTER TABLE subjects ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
   ALTER TABLE class_subjects ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
   ALTER TABLE class_subjects ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+  ALTER TABLE class_subjects ADD COLUMN IF NOT EXISTS max_marks numeric(6,2);
       -- backfill any null transaction_id values
       UPDATE fee_transactions SET transaction_id = concat('TXN', substr(md5(random()::text),1,8)) WHERE transaction_id IS NULL;
       -- add parent name columns if missing

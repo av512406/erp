@@ -20,6 +20,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Save, Download, Upload } from "lucide-react";
 import type { Student } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
 
 export interface GradeEntry {
   studentId: string;
@@ -38,13 +39,15 @@ interface GradesPageProps {
 const TERMS = ['Term 1', 'Term 2', 'Final'];
 
 export default function GradesPage({ students, grades, onSaveGrades, saving = false }: GradesPageProps) {
+  const { toast } = useToast();
   const [selectedGrade, setSelectedGrade] = useState("");
   const [selectedSection, setSelectedSection] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("");
   const [selectedTerm, setSelectedTerm] = useState("");
   const [gradeInputs, setGradeInputs] = useState<Record<string, string>>({});
-  const [classSubjects, setClassSubjects] = useState<string[]>([]);
+  const [classSubjects, setClassSubjects] = useState<{ id: string; code: string; name: string; maxMarks?: number | null }[]>([]);
   const [loadingSubjects, setLoadingSubjects] = useState(false);
+  const [maxMarks, setMaxMarks] = useState<number>(100);
 
   // derive unique classes and sections from provided students
   const uniqueClasses = useMemo(() => (
@@ -57,6 +60,13 @@ export default function GradesPage({ students, grades, onSaveGrades, saving = fa
     const pool = selectedGrade ? students.filter(s => s.grade === selectedGrade) : students;
     return Array.from(new Set(pool.map(s => s.section))).filter(Boolean).sort();
   }, [students, selectedGrade]);
+
+  // update maxMarks when subject selection changes
+  useEffect(() => {
+    if (!selectedSubject) return;
+    const subj = classSubjects.find(s => s.name === selectedSubject);
+    setMaxMarks(subj?.maxMarks ?? 100);
+  }, [selectedSubject, classSubjects]);
 
   // keep section consistent with selected class
   useEffect(() => {
@@ -74,8 +84,8 @@ export default function GradesPage({ students, grades, onSaveGrades, saving = fa
       try {
         const res = await fetch(`/api/classes/${encodeURIComponent(selectedGrade)}/subjects`);
         if (res.ok) {
-          const data: { id:string; code:string; name:string }[] = await res.json();
-          setClassSubjects(data.map(d => d.name));
+          const data: { id:string; code:string; name:string; maxMarks?: number | null }[] = await res.json();
+          setClassSubjects(data);
         } else {
           setClassSubjects([]);
         }
@@ -96,23 +106,37 @@ export default function GradesPage({ students, grades, onSaveGrades, saving = fa
   };
 
   const handleSave = () => {
-    const newGrades: GradeEntry[] = filteredStudents.map(student => {
-      const existingGrade = grades.find(
-        g => g.studentId === student.id && g.subject === selectedSubject && g.term === selectedTerm
-      );
+    // Only include students where the user has entered a non-empty mark
+    const newGrades: GradeEntry[] = [];
+    const skippedOverMax: string[] = [];
+    for (const student of filteredStudents) {
       const raw = gradeInputs[student.id];
-      const marks = raw !== undefined && raw !== ''
-        ? parseFloat(raw)
-        : (existingGrade ? existingGrade.marks : 0);
-      return {
-        studentId: student.id,
-        subject: selectedSubject,
-        marks,
-        term: selectedTerm
-      };
-    });
+      if (raw === undefined || raw === '') continue; // skip empty
+      const marks = parseFloat(raw);
+      if (!isFinite(marks)) continue; // skip invalid numbers
+      if (marks > (maxMarks || 100)) {
+        skippedOverMax.push(student.admissionNumber);
+        continue;
+      }
+      newGrades.push({ studentId: student.id, subject: selectedSubject, marks, term: selectedTerm });
+    }
+
+    if (newGrades.length === 0) {
+      // nothing to save — inform the user
+      toast({
+        title: 'No marks to save',
+        description: 'Enter marks for at least one student before saving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     onSaveGrades(newGrades);
     setGradeInputs({});
+
+    if (skippedOverMax.length) {
+      toast({ title: 'Some marks were skipped', description: `Skipped ${skippedOverMax.length} entries above max (${maxMarks}).`, variant: 'destructive' });
+    }
   };
 
   // CSV template download
@@ -247,8 +271,8 @@ export default function GradesPage({ students, grades, onSaveGrades, saving = fa
                   {classSubjects.length === 0 ? (
                     <div className="px-3 py-2 text-sm text-muted-foreground">No subjects configured for this class</div>
                   ) : (
-                    classSubjects.map(subject => (
-                      <SelectItem key={subject} value={subject}>{subject}</SelectItem>
+                    classSubjects.map(subj => (
+                      <SelectItem key={subj.id} value={subj.name}>{subj.name}</SelectItem>
                     ))
                   )}
                 </SelectContent>
@@ -269,6 +293,34 @@ export default function GradesPage({ students, grades, onSaveGrades, saving = fa
             </div>
           </div>
         </CardContent>
+        {selectedSubject ? (
+          <CardContent>
+            <div className="flex items-end gap-3">
+              <div className="w-40">
+                <Label htmlFor="max-marks">Max Marks</Label>
+                <Input id="max-marks" type="number" min={1} value={String(maxMarks)} onChange={(e) => setMaxMarks(Number(e.target.value || 0))} />
+              </div>
+              <div>
+                <Button onClick={async () => {
+                  const subj = classSubjects.find(s => s.name === selectedSubject);
+                  if (!subj) return toast({ title: 'Save failed', description: 'Subject not found', variant: 'destructive' });
+                  try {
+                    const res = await fetch(`/api/classes/${encodeURIComponent(selectedGrade)}/subjects/${encodeURIComponent(subj.id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maxMarks }) });
+                    if (res.ok) {
+                      const j = await res.json();
+                      setClassSubjects(prev => prev.map(p => p.id === subj.id ? { ...p, maxMarks: j.maxMarks ?? null } : p));
+                      toast({ title: 'Max marks updated', description: `Max marks set to ${j.maxMarks ?? '—'}` });
+                    } else {
+                      toast({ title: 'Save failed', description: 'Unable to update max marks', variant: 'destructive' });
+                    }
+                  } catch (e) {
+                    toast({ title: 'Save failed', description: 'Network error', variant: 'destructive' });
+                  }
+                }} className="mt-6">Save Max</Button>
+              </div>
+            </div>
+          </CardContent>
+        ) : null}
       </Card>
 
       {isReadyToEnter ? (
@@ -305,7 +357,7 @@ export default function GradesPage({ students, grades, onSaveGrades, saving = fa
                   <TableRow>
                     <TableHead>Student ID</TableHead>
                     <TableHead>Student Name</TableHead>
-                    <TableHead className="text-right">Marks (out of 100)</TableHead>
+                    <TableHead className="text-right">Marks (out of {maxMarks})</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -330,7 +382,7 @@ export default function GradesPage({ students, grades, onSaveGrades, saving = fa
                             <Input
                               type="number"
                               min="0"
-                              max="100"
+                              max={String(maxMarks)}
                               className="max-w-24 ml-auto"
                               value={gradeInputs[student.id] ?? (existingGrade ? existingGrade.marks.toString() : '')}
                               placeholder="0"
