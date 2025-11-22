@@ -1,5 +1,5 @@
 import React from 'react';
-import { schoolConfig, nextReceiptSerial } from '@/lib/schoolConfig';
+import { schoolConfig } from '@/lib/schoolConfig';
 import { useSchoolConfig } from '@/hooks/useSchoolConfig';
 import { amountToIndianWords } from '@/lib/amountWords';
 import { createRoot } from 'react-dom/client';
@@ -40,7 +40,7 @@ const DEFAULT_ORDER = [
 export const Receipt: React.FC<ReceiptProps> = ({ student, items, paymentDate, serial, session, yearlyFeeAmount, paidSoFar, remainingFee }) => {
 	// Load dynamic config (will fallback to defaults until fetched)
 	useSchoolConfig();
-	const computedSerial = serial ?? nextReceiptSerial();
+	const displaySerial = serial != null ? String(serial).padStart(4,'0') : '----';
 	// Normalize item list into ordered rows
 	const map: Record<string, number> = {};
 	items.forEach(i => { map[i.label] = i.amount; });
@@ -75,7 +75,7 @@ export const Receipt: React.FC<ReceiptProps> = ({ student, items, paymentDate, s
 						</div>
 					</div>
 					<div className="text-[11px] leading-4 space-y-0.5 mb-2">
-						<div className="flex justify-between"><span>Serial No.: <strong>{String(computedSerial).padStart(4,'0')}</strong></span><span>Date: {paymentDate}</span></div>
+						<div className="flex justify-between"><span>Serial No.: <strong>{displaySerial}</strong></span><span>Date: {paymentDate}</span></div>
 						<div>Name of the Student: <strong>{student.name}</strong></div>
 						{student.fatherName && <div>Father's Name: <strong>{student.fatherName}</strong></div>}
 						<div className="flex justify-between"><span>Class: <strong>{cls || '—'}</strong></span><span>Session: <strong>{sessionValue}</strong></span></div>
@@ -187,7 +187,7 @@ img { max-height:50px; }
 
 // Build a minimal plain HTML version (no Tailwind dependency) for fallback printing.
 function buildPlainHtml(props: ReceiptProps): string {
-	const serial = String(props.serial ?? nextReceiptSerial()).padStart(4,'0');
+	const serial = props.serial != null ? String(props.serial).padStart(4,'0') : '----';
 	const sessionValue = props.session || schoolConfig.session;
 	const map: Record<string, number> = {};
 	props.items.forEach(i => { map[i.label] = i.amount; });

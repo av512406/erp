@@ -29,18 +29,4 @@ export function setSchoolConfig(cfg: Partial<SchoolConfig>) {
   } catch {}
 }
 
-// Incremental serial number persistence (client side). In a multi-user
-// environment this should be server backed; for now we use localStorage.
-export function nextReceiptSerial(): number {
-  try {
-    const key = 'receiptSerial';
-    const raw = localStorage.getItem(key);
-    const current = raw ? parseInt(raw, 10) : 0;
-    const next = current + 1;
-    localStorage.setItem(key, String(next));
-    return next;
-  } catch {
-    // Fallback: random-ish 5 digit number
-    return Math.floor(10000 + Math.random() * 90000);
-  }
-}
+// Deprecated: client-side receipt serial generation removed. Server now authoritative.

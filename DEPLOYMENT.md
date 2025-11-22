@@ -129,6 +129,19 @@ npm run build
 # build artifacts will be in client/dist (Vite default)
 ```
 
+### GitHub Pages specifics
+
+If deploying to GitHub Pages at `https://USERNAME.github.io/REPO`, set a base path so Vite generates correct asset URLs:
+
+```bash
+export GH_PAGES_BASE="/REPO/"
+npm run build
+```
+
+Or configure in the Pages workflow using an env variable (`GH_PAGES_BASE`). The `vite.config.ts` reads this and sets `base` accordingly. After build, publish the `dist` (or `dist/public` if using current config) folder to Pages.
+
+API calls: ensure `VITE_API_BASE_URL` points to your AWS backend domain (e.g. `https://api.school.example`). GitHub Pages deployment is entirely static; CORS on the backend must allow the Pages origin.
+
 Deploy `client/dist` to a static host:
 - Vercel or Netlify (simple, managed)
 - Firebase Hosting

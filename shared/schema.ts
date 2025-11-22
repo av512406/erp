@@ -3,18 +3,29 @@ import { pgTable, text, varchar, decimal, date, integer } from "drizzle-orm/pg-c
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+// Updated users table: email + role + password hash (never store plain password)
+export const users = pgTable('users', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  role: text('role').notNull(), // 'admin' | 'teacher'
+  name: text('name'),
+  createdAt: date('created_at'),
+  updatedAt: date('updated_at'),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+export const registerUserSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+  role: z.enum(['admin','teacher']).optional(),
+  name: z.string().min(1).optional()
 });
-
-export type InsertUser = z.infer<typeof insertUserSchema>;
+export const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1)
+});
+export type RegisterUserInput = z.infer<typeof registerUserSchema>;
+export type LoginInput = z.infer<typeof loginSchema>;
 export type User = typeof users.$inferSelect;
 
 export const students = pgTable("students", {
@@ -108,6 +119,74 @@ export const subjects = pgTable("subjects", {
 export const insertSubjectSchema = createInsertSchema(subjects).omit({ id: true });
 export type InsertSubject = z.infer<typeof insertSubjectSchema>;
 export type Subject = typeof subjects.$inferSelect;
+
+// Receipt ledger immutable snapshot tables (Drizzle definitions used for Zod derivation only; DDL handled in ensureTables).
+export const receiptLedger = pgTable('receipt_ledger', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  feeTransactionId: varchar('fee_transaction_id').notNull(),
+  studentId: varchar('student_id').notNull(),
+  receiptSerial: integer('receipt_serial'),
+  paymentDate: date('payment_date').notNull(),
+  totalAmount: decimal('total_amount', { precision: 10, scale: 2 }).notNull(),
+  // denormalized JSON copy of items for quick fetch (array of {label, amount})
+  itemsJson: text('items_json'),
+});
+
+export const receiptLedgerItems = pgTable('receipt_ledger_items', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  ledgerId: varchar('ledger_id').notNull(),
+  label: text('label').notNull(),
+  amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+  position: integer('position').notNull(),
+});
+
+// Zod schemas for creating ledger entries (used by POST /api/fees/:id/ledger)
+export const receiptLedgerItemSchema = z.object({
+  label: z.string().min(1),
+  amount: z.number().nonnegative(),
+});
+export const createReceiptLedgerSchema = z.object({
+  items: z.array(receiptLedgerItemSchema).min(1),
+});
+export type ReceiptLedgerItemInput = z.infer<typeof receiptLedgerItemSchema>;
+export type CreateReceiptLedgerInput = z.infer<typeof createReceiptLedgerSchema>;
+
+// --- Additional request-level schemas for endpoint validation ---
+// Student leave / withdraw / restore operations
+export const studentLeaveSchema = z.object({
+  leftDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  reason: z.string().trim().min(1).max(300).optional()
+});
+
+// Class subject assignment (POST /api/classes/:grade/subjects)
+export const classSubjectAssignSchema = z.object({
+  subjectId: z.string().trim().min(1),
+  maxMarks: z.number().int().positive().max(1000).optional()
+});
+
+// Update class-subject max marks (PUT /api/classes/:grade/subjects/:subjectId)
+export const classSubjectUpdateSchema = z.object({
+  maxMarks: z.number().int().positive().max(1000).nullable().optional()
+});
+
+// Fee transaction import (array of partial fee transactions; remarks optional)
+export const feeTransactionImportRowSchema = insertFeeTransactionSchema.partial().extend({
+  amount: z.union([z.string(), z.number()]).optional(), // will coerce downstream
+  remarks: z.string().trim().max(300).optional()
+});
+export const feeTransactionImportSchema = z.array(feeTransactionImportRowSchema).min(1);
+
+// Bulk grade upsert validation (each row must satisfy insertGradeSchema)
+export const gradeBulkRowSchema = insertGradeSchema;
+export const gradeBulkArraySchema = z.array(gradeBulkRowSchema).min(1);
+
+// Student import payload validation
+export const studentImportRowSchema = insertStudentSchema;
+export const studentImportSchema = z.object({
+  students: z.array(studentImportRowSchema).min(1),
+  strategy: z.enum(['skip','upsert']).optional()
+});
+
 
 // 1) Add column
 // ALTER TABLE fee_transactions ADD COLUMN IF NOT EXISTS receipt_serial integer;

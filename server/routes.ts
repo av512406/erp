@@ -1,11 +1,17 @@
 import type { Express } from 'express';
+import cors from 'cors';
 import ExcelJS from 'exceljs';
 import { createServer, type Server } from 'http';
 import { pool, ensureTables, genId, genTransactionId } from './db';
-import { insertStudentSchema, insertGradeSchema, insertFeeTransactionSchema, insertSubjectSchema } from '../shared/schema';
+import { insertStudentSchema, insertGradeSchema, insertFeeTransactionSchema, insertSubjectSchema, createReceiptLedgerSchema, studentLeaveSchema, classSubjectAssignSchema, classSubjectUpdateSchema, feeTransactionImportSchema, gradeBulkArraySchema, studentImportSchema } from '@erp/shared';
+import { handleRegister, handleLogin, authMiddleware, requireRole, currentUserFromReq } from './auth';
 import { ZodError, z } from 'zod';
+import { validateBody, sanitizeObjectStrings } from './validation';
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // CORS (configured via FRONTEND_ORIGIN; fallback to dev permissive)
+  const origin = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
+  app.use(cors({ origin, credentials: true }));
   // ensure DB tables exist (helpful for local Docker)
   await ensureTables();
 
@@ -76,9 +82,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(rows.map(mapStudent));
   });
 
-  app.post('/api/students', async (req, res) => {
+  app.post('/api/students', authMiddleware, requireRole(['admin']), async (req, res) => {
     try {
-      const data = insertStudentSchema.parse(req.body);
+      const data = insertStudentSchema.parse(sanitizeObjectStrings(req.body));
       // check exists
     const exists = await pool.query('SELECT 1 FROM students WHERE admission_number = $1', [data.admissionNumber]);
     if ((exists.rowCount ?? 0) > 0) return res.status(409).json({ message: 'admissionNumber exists' });
@@ -96,10 +102,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/students/:admissionNumber', async (req, res) => {
+  app.put('/api/students/:admissionNumber', authMiddleware, requireRole(['admin']), async (req, res) => {
     try {
       const admissionNumber = req.params.admissionNumber;
-      const data = insertStudentSchema.partial().parse(req.body);
+      const data = insertStudentSchema.partial().parse(sanitizeObjectStrings(req.body));
       const existing = await pool.query('SELECT * FROM students WHERE admission_number = $1', [admissionNumber]);
     if ((existing.rowCount ?? 0) === 0) return res.status(404).json({ message: 'not found' });
       // build update set dynamically
@@ -122,29 +128,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/students/:id', async (req, res) => {
+  app.delete('/api/students/:id', authMiddleware, requireRole(['admin']), async (req, res) => {
     const id = req.params.id;
     await pool.query('DELETE FROM students WHERE id = $1', [id]);
   res.json({ deleted: id });
   });
 
   // bulk import: supports strategy=skip|upsert
-  app.post('/api/students/import', async (req, res) => {
-    const { students: imported, strategy } = req.body as { students: any[]; strategy?: string };
-    if (!Array.isArray(imported)) return res.status(400).json({ message: 'students array required' });
+  app.post('/api/students/import', authMiddleware, requireRole(['admin']), async (req, res) => {
+    let parsed; try { parsed = studentImportSchema.parse(req.body); } catch (e) { if (e instanceof ZodError) return res.status(400).json({ message:'validation', issues:e.format() }); return res.status(400).json({ message:'invalid body' }); }
+  const imported = parsed.students.map((s: any) => sanitizeObjectStrings(s)); const strategy = parsed.strategy;
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const added: any[] = [];
-      const skipped: string[] = [];
-      let updated = 0;
+      const added: string[] = []; const skipped: string[] = []; let updated = 0;
       for (const row of imported) {
         try {
           const data = insertStudentSchema.parse(row);
-          const exists = await client.query('SELECT * FROM students WHERE admission_number = $1', [data.admissionNumber]);
-            if ((exists.rowCount ?? 0) > 0) {
+          const exists = await client.query('SELECT 1 FROM students WHERE admission_number=$1', [data.admissionNumber]);
+          if ((exists.rowCount ?? 0) > 0) {
             if (strategy === 'upsert') {
-              // update
               await client.query(
                 `UPDATE students SET name=$1, date_of_birth=$2, admission_date=$3, aadhar_number=$4, pen_number=$5, aapar_id=$6, mobile_number=$7, address=$8, grade=$9, section=$10, father_name=$11, mother_name=$12, yearly_fee_amount=$13 WHERE admission_number=$14`,
                 [data.name, data.dateOfBirth, data.admissionDate, data.aadharNumber || null, data.penNumber || null, data.aaparId || null, data.mobileNumber || null, data.address || null, data.grade || null, data.section || null, (data as any).fatherName || null, (data as any).motherName || null, data.yearlyFeeAmount, data.admissionNumber]
@@ -161,9 +164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             );
             added.push(data.admissionNumber);
           }
-        } catch (e) {
-          // validation error for this row -> skip
-        }
+        } catch { /* skip invalid row */ }
       }
       await client.query('COMMIT');
   res.json({ added: added.length, skipped: skipped.length, skippedAdmissionNumbers: skipped, updated });
@@ -188,10 +189,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Mark a student as left (moved outside import route)
-  app.put('/api/students/:admissionNumber/leave', async (req, res) => {
+  app.put('/api/students/:admissionNumber/leave', authMiddleware, requireRole(['admin']), validateBody(studentLeaveSchema), async (req, res) => {
     try {
       const admissionNumber = req.params.admissionNumber;
-      const { leftDate, reason } = req.body as { leftDate?: string; reason?: string };
+  const { leftDate, reason } = sanitizeObjectStrings((req as any).validated);
       const existing = await pool.query('SELECT * FROM students WHERE admission_number=$1', [admissionNumber]);
       if ((existing.rowCount ?? 0) === 0) return res.status(404).json({ message: 'not found' });
       const dateToSet = leftDate || new Date().toISOString().slice(0,10);
@@ -203,10 +204,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   // Professional alias
-  app.put('/api/students/:admissionNumber/withdraw', async (req, res) => {
+  app.put('/api/students/:admissionNumber/withdraw', authMiddleware, requireRole(['admin']), validateBody(studentLeaveSchema), async (req, res) => {
     try {
       const admissionNumber = req.params.admissionNumber;
-      const { leftDate, reason } = req.body as { leftDate?: string; reason?: string };
+  const { leftDate, reason } = sanitizeObjectStrings((req as any).validated);
       const existing = await pool.query('SELECT * FROM students WHERE admission_number=$1', [admissionNumber]);
       if ((existing.rowCount ?? 0) === 0) return res.status(404).json({ message: 'not found' });
       const dateToSet = leftDate || new Date().toISOString().slice(0,10);
@@ -218,7 +219,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   // Restore a withdrawn student to active status
-  app.put('/api/students/:admissionNumber/restore', async (req, res) => {
+  app.put('/api/students/:admissionNumber/restore', authMiddleware, requireRole(['admin']), async (req, res) => {
     try {
       const admissionNumber = req.params.admissionNumber;
       const existing = await pool.query('SELECT * FROM students WHERE admission_number=$1', [admissionNumber]);
@@ -243,9 +244,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // upsert grades in bulk
-  app.post('/api/grades', async (req, res) => {
-    const incoming = req.body as any[];
-    if (!Array.isArray(incoming)) return res.status(400).json({ message: 'grades array required' });
+  app.post('/api/grades', authMiddleware, requireRole(['admin','teacher']), async (req, res) => {
+    let incoming; try { incoming = gradeBulkArraySchema.parse(req.body); } catch (e) { if (e instanceof ZodError) return res.status(400).json({ message:'validation', issues:e.format() }); return res.status(400).json({ message:'invalid body' }); }
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -261,17 +261,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await client.query('INSERT INTO grades (id, student_id, subject, marks, term) VALUES ($1,$2,$3,$4,$5)', [id, data.studentId, data.subject, data.marks, data.term]);
           }
           keys.push({ studentId: data.studentId, subject: data.subject, term: data.term });
-        } catch (e) {
-          // skip invalid row
-        }
+        } catch { /* skip invalid row */ }
       }
       await client.query('COMMIT');
       // fetch updated rows
       if (keys.length === 0) return res.json({ updated: 0, grades: [] });
-      const conditions = keys.map((k, i) => `(student_id=$${i*3+1} AND subject=$${i*3+2} AND term=$${i*3+3})`).join(' OR ');
-      const params: any[] = [];
-      keys.forEach(k => { params.push(k.studentId, k.subject, k.term); });
-      const refreshed = await pool.query(`SELECT * FROM grades WHERE ${conditions}` , params);
+      const conditions = keys.map((k,i)=>`(student_id=$${i*3+1} AND subject=$${i*3+2} AND term=$${i*3+3})`).join(' OR ');
+      const params: any[] = []; keys.forEach(k => { params.push(k.studentId, k.subject, k.term); });
+      const refreshed = await pool.query(`SELECT * FROM grades WHERE ${conditions}`, params);
       res.json({ updated: keys.length, grades: refreshed.rows.map(mapGrade) });
     } catch (e) {
       await client.query('ROLLBACK');
@@ -337,9 +334,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/fees', async (req, res) => {
+  app.post('/api/fees', authMiddleware, requireRole(['admin']), async (req, res) => {
     try {
-      const data = insertFeeTransactionSchema.parse(req.body);
+      const data = insertFeeTransactionSchema.parse(sanitizeObjectStrings(req.body));
       const amt = parseFloat((data as any).amount);
       if (!isFinite(amt) || amt <= 0) {
         return res.status(400).json({ message: 'amount must be greater than 0' });
@@ -349,36 +346,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if ((exists.rowCount ?? 0) === 0) return res.status(404).json({ message: 'student not found' });
       const id = genId();
       const transactionId = genTransactionId();
-      // Obtain receipt serial via sequence; fallback MAX+1 if sequence missing.
-      let receiptSerial: number | null = null;
-      try {
-        const seq = await pool.query("SELECT nextval('receipt_serial_seq') as serial");
-        receiptSerial = Number(seq.rows[0].serial);
-      } catch {
-        try {
-          const maxQ = await pool.query('SELECT COALESCE(MAX(receipt_serial),0)+1 as next FROM fee_transactions');
-          receiptSerial = Number(maxQ.rows[0].next);
-        } catch {}
-      }
+      // Rely on sequence-backed default; if column missing it's a deployment error.
       let q;
-      if (receiptSerial != null) {
-        try {
-          q = await pool.query(
-            `INSERT INTO fee_transactions (id, student_id, transaction_id, amount, payment_date, payment_mode, remarks, receipt_serial) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-            [id, data.studentId, transactionId, data.amount, data.paymentDate, data.paymentMode, data.remarks || null, receiptSerial]
-          );
-        } catch (e) {
-          // If column absent, retry without serial
-          q = await pool.query(
-            `INSERT INTO fee_transactions (id, student_id, transaction_id, amount, payment_date, payment_mode, remarks) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-            [id, data.studentId, transactionId, data.amount, data.paymentDate, data.paymentMode, data.remarks || null]
-          );
-        }
-      } else {
+      try {
         q = await pool.query(
           `INSERT INTO fee_transactions (id, student_id, transaction_id, amount, payment_date, payment_mode, remarks) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
           [id, data.studentId, transactionId, data.amount, data.paymentDate, data.paymentMode, data.remarks || null]
         );
+      } catch (e: any) {
+        if (e?.code === '42703') {
+          return res.status(500).json({ message: 'receipt_serial column missing; ensureTables/migration not applied' });
+        }
+        throw e;
       }
       const row = q.rows[0];
       res.status(201).json({
@@ -401,29 +380,125 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create immutable receipt ledger entry (snapshot of breakdown items) for a fee transaction.
+  app.post('/api/fees/:id/ledger', authMiddleware, requireRole(['admin','teacher']), async (req, res) => {
+    const id = req.params.id;
+    try {
+      const parsed = createReceiptLedgerSchema.parse(req.body);
+      // Fetch transaction
+      const txQ = await pool.query('SELECT f.*, s.id as student_id FROM fee_transactions f JOIN students s ON s.id = f.student_id WHERE f.id=$1', [id]);
+      if ((txQ.rowCount ?? 0) === 0) return res.status(404).json({ message: 'transaction not found' });
+      const tx = txQ.rows[0];
+      if (tx.receipt_serial == null) return res.status(409).json({ message: 'assign receipt serial before creating ledger' });
+      // Check existing ledger
+      const existing = await pool.query('SELECT id FROM receipt_ledger WHERE fee_transaction_id=$1', [id]);
+      if ((existing.rowCount ?? 0) > 0) {
+        const ledgerId = existing.rows[0].id;
+        const ledgerFull = await pool.query('SELECT rl.*, s.name as student_name FROM receipt_ledger rl JOIN students s ON s.id=rl.student_id WHERE rl.id=$1', [ledgerId]);
+        const itemsQ = await pool.query('SELECT label, amount, position FROM receipt_ledger_items WHERE ledger_id=$1 ORDER BY position', [ledgerId]);
+        return res.json({ ledger: mapLedger(ledgerFull.rows[0]), items: itemsQ.rows.map(mapLedgerItem), created: false });
+      }
+      // Compute total from items and verify matches transaction amount (tolerate minor rounding)
+  const totalFromItems = parsed.items.reduce((sum: number, item: { amount: number }) => sum + item.amount, 0);
+      const txAmount = parseFloat(tx.amount);
+      const delta = Math.abs(totalFromItems - txAmount);
+      if (delta > 0.01) {
+        return res.status(400).json({ message: 'items total does not match transaction amount', transactionAmount: txAmount, itemsTotal: totalFromItems });
+      }
+      const client = await pool.connect();
+      let ledgerId: string;
+      try {
+        await client.query('BEGIN');
+        ledgerId = genId();
+        await client.query(
+          `INSERT INTO receipt_ledger (id, fee_transaction_id, student_id, receipt_serial, payment_date, total_amount, items_json)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [ledgerId, id, tx.student_id, tx.receipt_serial, tx.payment_date, txAmount, JSON.stringify(parsed.items)]
+        );
+        for (let i = 0; i < parsed.items.length; i++) {
+          const it = parsed.items[i];
+          await client.query(
+            `INSERT INTO receipt_ledger_items (id, ledger_id, label, amount, position) VALUES ($1,$2,$3,$4,$5)`,
+            [genId(), ledgerId, it.label, it.amount, i + 1]
+          );
+        }
+        await client.query('COMMIT');
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
+      const ledgerFull = await pool.query('SELECT rl.*, s.name as student_name FROM receipt_ledger rl JOIN students s ON s.id=rl.student_id WHERE rl.id=$1', [ledgerId]);
+      const itemsQ = await pool.query('SELECT label, amount, position FROM receipt_ledger_items WHERE ledger_id=$1 ORDER BY position', [ledgerId]);
+      res.status(201).json({ ledger: mapLedger(ledgerFull.rows[0]), items: itemsQ.rows.map(mapLedgerItem), created: true });
+    } catch (e) {
+      if (e instanceof ZodError) return res.status(400).json({ message: 'validation', issues: e.format() });
+      console.error(e);
+      res.status(500).json({ message: 'failed to create ledger' });
+    }
+  });
+
+  // List receipt ledgers (recent first)
+  app.get('/api/receipts', async (_req, res) => {
+    try {
+      const { rows } = await pool.query(`
+        SELECT rl.*, s.name as student_name
+        FROM receipt_ledger rl
+        JOIN students s ON s.id = rl.student_id
+        ORDER BY rl.created_at DESC
+        LIMIT 500`);
+      const itemsQ = await pool.query('SELECT ledger_id, label, amount, position FROM receipt_ledger_items');
+      const grouped: Record<string, any[]> = {};
+      itemsQ.rows.forEach(r => { (grouped[r.ledger_id] ||= []).push(mapLedgerItem(r)); });
+      res.json(rows.map(r => ({ ...mapLedger(r), items: (grouped[r.id] || []).sort((a,b)=>a.position-b.position) })));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ message: 'failed to list receipts' });
+    }
+  });
+
+  function mapLedger(row: any) {
+    return {
+      id: row.id,
+      feeTransactionId: row.fee_transaction_id,
+      studentId: row.student_id,
+      studentName: row.student_name,
+      receiptSerial: row.receipt_serial == null ? undefined : Number(row.receipt_serial),
+      paymentDate: row.payment_date,
+      totalAmount: parseFloat(row.total_amount),
+      createdAt: row.created_at,
+      itemsJson: row.items_json,
+    };
+  }
+  function mapLedgerItem(row: any) {
+    return {
+      label: row.label,
+      amount: parseFloat(row.amount),
+      position: row.position
+    };
+  }
+
   // Assign a receipt serial to an existing transaction if missing (idempotent).
-  app.post('/api/fees/:id/assign-serial', async (req, res) => {
+  app.post('/api/fees/:id/assign-serial', authMiddleware, requireRole(['admin']), async (req, res) => {
     const id = req.params.id;
     try {
       const existing = await pool.query('SELECT receipt_serial FROM fee_transactions WHERE id=$1', [id]);
       if ((existing.rowCount ?? 0) === 0) return res.status(404).json({ message: 'transaction not found' });
       const current = existing.rows[0].receipt_serial;
       if (current != null) return res.json({ receiptSerial: Number(current), assigned: false });
-      // Generate next serial via sequence; fallback to MAX+1 if sequence/column exists but sequence missing.
-      let next: number | null = null;
+      // Allocate strictly via sequence; error if missing.
       try {
         const seq = await pool.query("SELECT nextval('receipt_serial_seq') as serial");
-        next = Number(seq.rows[0].serial);
-      } catch {
-        // fallback if sequence absent but column present
-        try {
-          const maxQ = await pool.query('SELECT COALESCE(MAX(receipt_serial),0)+1 as next FROM fee_transactions');
-          next = Number(maxQ.rows[0].next);
-        } catch {}
+        const next = Number(seq.rows[0].serial);
+        const upd = await pool.query('UPDATE fee_transactions SET receipt_serial=$1 WHERE id=$2 RETURNING receipt_serial', [next, id]);
+        return res.json({ receiptSerial: Number(upd.rows[0].receipt_serial), assigned: true });
+      } catch (e: any) {
+        if (e?.code === '42P01' || e?.code === '42703') {
+          return res.status(500).json({ message: 'receipt_serial sequence or column missing; run ensureTables' });
+        }
+        throw e;
       }
-      if (next == null) return res.status(500).json({ message: 'cannot allocate receipt serial (migration missing?)' });
-      const upd = await pool.query('UPDATE fee_transactions SET receipt_serial=$1 WHERE id=$2 RETURNING receipt_serial', [next, id]);
-      return res.json({ receiptSerial: Number(upd.rows[0].receipt_serial), assigned: true });
     } catch (e: any) {
       if (e?.code === '42703') {
         return res.status(400).json({ message: 'receipt_serial column not found; run migration first' });
@@ -434,16 +509,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bulk import fee transactions
-  app.post('/api/fees/import', async (req, res) => {
-    const incoming = req.body as any[];
-    if (!Array.isArray(incoming)) return res.status(400).json({ message: 'transactions array required' });
+  app.post('/api/fees/import', authMiddleware, requireRole(['admin']), async (req, res) => {
+    let incoming: any[];
+    try {
+      incoming = feeTransactionImportSchema.parse(req.body);
+    } catch (e) {
+      if (e instanceof ZodError) return res.status(400).json({ message: 'validation', issues: e.format() });
+      return res.status(400).json({ message: 'invalid body' });
+    }
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       let inserted = 0;
       const skipped: any[] = [];
       for (let i = 0; i < incoming.length; i++) {
-        const row = incoming[i];
+  const row = sanitizeObjectStrings(incoming[i]);
         try {
           // ensure amount is string for schema/decimal
           const normalized = { ...row, amount: row.amount != null ? String(row.amount) : row.amount };
@@ -456,35 +536,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           const id = genId();
           const transactionId = genTransactionId();
-          // Per-row sequence consumption; fallback MAX+1 if sequence missing
-          let receiptSerial: number | null = null;
-          try {
-            const seq = await client.query("SELECT nextval('receipt_serial_seq') as serial");
-            receiptSerial = Number(seq.rows[0].serial);
-          } catch {
-            try {
-              const maxQ = await client.query('SELECT COALESCE(MAX(receipt_serial),0)+1 as next FROM fee_transactions');
-              receiptSerial = Number(maxQ.rows[0].next);
-            } catch {}
-          }
-          if (receiptSerial != null) {
-            try {
-              await client.query(
-                `INSERT INTO fee_transactions (id, student_id, transaction_id, amount, payment_date, payment_mode, remarks, receipt_serial) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-                [id, data.studentId, transactionId, data.amount, data.paymentDate, data.paymentMode, data.remarks || null, receiptSerial]
-              );
-            } catch {
-              await client.query(
-                `INSERT INTO fee_transactions (id, student_id, transaction_id, amount, payment_date, payment_mode, remarks) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-                [id, data.studentId, transactionId, data.amount, data.paymentDate, data.paymentMode, data.remarks || null]
-              );
-            }
-          } else {
-            await client.query(
-              `INSERT INTO fee_transactions (id, student_id, transaction_id, amount, payment_date, payment_mode, remarks) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-              [id, data.studentId, transactionId, data.amount, data.paymentDate, data.paymentMode, data.remarks || null]
-            );
-          }
+          // rely on default-backed sequence; omit receipt_serial in insert list
+          await client.query(
+            `INSERT INTO fee_transactions (id, student_id, transaction_id, amount, payment_date, payment_mode, remarks) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            [id, data.studentId, transactionId, data.amount, data.paymentDate, data.paymentMode, data.remarks || null]
+          );
           inserted++;
         } catch (e: any) {
           skipped.push({ index: i, reason: e?.message || 'invalid row', row });
@@ -501,7 +557,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/fees/:id', async (req, res) => {
+  app.delete('/api/fees/:id', authMiddleware, requireRole(['admin']), async (req, res) => {
     const id = req.params.id;
     await pool.query('DELETE FROM fee_transactions WHERE id=$1', [id]);
     res.json({ deleted: id });
@@ -513,7 +569,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(rows.map(mapSubject));
   });
 
-  app.post('/api/subjects', async (req, res) => {
+  app.post('/api/subjects', authMiddleware, requireRole(['admin']), async (req, res) => {
     try {
       const data = insertSubjectSchema.parse(req.body);
       const id = genId();
@@ -526,7 +582,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/subjects/:id', async (req, res) => {
+  app.delete('/api/subjects/:id', authMiddleware, requireRole(['admin']), async (req, res) => {
     const id = req.params.id;
     await pool.query('DELETE FROM subjects WHERE id=$1', [id]);
     res.json({ deleted: id });
@@ -557,7 +613,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bulk sync: copy all subjects from a source class to all classes
-  app.post('/api/classes/:grade/sync-all', async (req, res) => {
+  app.post('/api/classes/:grade/sync-all', authMiddleware, requireRole(['admin']), async (req, res) => {
     const sourceGrade = req.params.grade;
     const client = await pool.connect();
     try {
@@ -604,10 +660,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/classes/:grade/subjects', async (req, res) => {
+  app.post('/api/classes/:grade/subjects', authMiddleware, requireRole(['admin']), validateBody(classSubjectAssignSchema), async (req, res) => {
     const grade = req.params.grade;
-    const { subjectId, maxMarks } = req.body as { subjectId: string; maxMarks?: number };
-    if (!subjectId) return res.status(400).json({ message: 'subjectId required' });
+    const { subjectId, maxMarks } = (req as any).validated as { subjectId: string; maxMarks?: number };
     const id = genId();
     try {
       await pool.query('INSERT INTO class_subjects (id, grade, subject_id, max_marks) VALUES ($1,$2,$3,$4)', [id, grade, subjectId, maxMarks ?? null]);
@@ -619,10 +674,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update max marks for a class-subject assignment
-  app.put('/api/classes/:grade/subjects/:subjectId', async (req, res) => {
+  app.put('/api/classes/:grade/subjects/:subjectId', authMiddleware, requireRole(['admin']), validateBody(classSubjectUpdateSchema), async (req, res) => {
     const grade = req.params.grade;
     const subjectId = req.params.subjectId;
-    const { maxMarks } = req.body as { maxMarks?: number };
+    const { maxMarks } = (req as any).validated as { maxMarks?: number | null };
     try {
       const q = await pool.query('UPDATE class_subjects SET max_marks=$1 WHERE grade=$2 AND subject_id=$3 RETURNING *', [maxMarks ?? null, grade, subjectId]);
       if ((q.rowCount ?? 0) === 0) return res.status(404).json({ message: 'assignment not found' });
@@ -633,7 +688,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/classes/:grade/subjects/:subjectId', async (req, res) => {
+  app.delete('/api/classes/:grade/subjects/:subjectId', authMiddleware, requireRole(['admin']), async (req, res) => {
     const grade = req.params.grade;
     const subjectId = req.params.subjectId;
     await pool.query('DELETE FROM class_subjects WHERE grade=$1 AND subject_id=$2', [grade, subjectId]);
@@ -768,7 +823,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Excel export with optional date range filtering (inclusive)
   app.get('/api/export/transactions/excel', async (req, res) => {
-    // Fallback HTML-table based Excel (opens in Excel) to avoid external dependency issues
+    // New: native XLSX generation via ExcelJS for consistency with students export
     try {
       const { start, end } = req.query as { start?: string; end?: string };
       const params: any[] = [];
@@ -784,39 +839,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ${whereSql}
         ORDER BY f.payment_date ASC, f.id ASC
       `, params);
+      // Build workbook
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Transactions');
+      const headers = ['Admission Number','Student Name','Transaction ID','Amount (₹)','Payment Date','Payment Mode','Remarks'];
+      sheet.addRow(headers);
       let total = 0;
-      const rowsHtml = q.rows.map(r => {
+      for (const r of q.rows) {
         const amt = parseFloat(r.amount);
-        total += isFinite(amt) ? amt : 0;
-        return `<tr>
-          <td>${r.admission_number}</td>
-          <td>${escapeHtml(r.name)}</td>
-          <td>${r.transaction_id}</td>
-          <td>${amt.toFixed(2)}</td>
-          <td>${r.payment_date}</td>
-          <td>${r.payment_mode}</td>
-          <td>${escapeHtml(r.remarks || '')}</td>
-        </tr>`;
-      }).join('');
-      const summaryRow = `<tr style="font-weight:bold;background:#eef"><td></td><td>TOTAL</td><td></td><td>${total.toFixed(2)}</td><td></td><td></td><td></td></tr>`;
-      const html = `<!DOCTYPE html><html><head><meta charset="utf-8" />
-        <title>Fee Transactions Export</title></head><body>
-        <table border="1" cellspacing="0" cellpadding="4">
-          <thead style="background:#ddd;font-weight:bold">
-            <tr>
-              <th>Admission Number</th><th>Student Name</th><th>Transaction ID</th><th>Amount (₹)</th><th>Payment Date</th><th>Payment Mode</th><th>Remarks</th>
-            </tr>
-          </thead>
-          <tbody>${rowsHtml}${summaryRow}</tbody>
-        </table>
-      </body></html>`;
-      const filename = `fee-transactions-${start || 'ALL'}-${end || 'ALL'}.xls`;
-      res.setHeader('Content-Type','application/vnd.ms-excel');
+        if (isFinite(amt)) total += amt;
+        sheet.addRow([
+          r.admission_number,
+          r.name,
+          r.transaction_id,
+          isFinite(amt) ? amt : r.amount,
+          r.payment_date,
+          r.payment_mode,
+          r.remarks || ''
+        ]);
+      }
+      // Summary row (bold)
+      const summary = sheet.addRow(['', 'TOTAL', '', total, '', '', '']);
+      summary.font = { bold: true };
+      // Style header row
+      const headerRow = sheet.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.alignment = { vertical: 'middle' };
+      // Auto-size columns (bounded)
+      for (let c = 1; c <= headers.length; c++) {
+        let maxLen = headers[c - 1].length;
+        for (let rIdx = 2; rIdx <= sheet.rowCount; rIdx++) {
+          const v = sheet.getRow(rIdx).getCell(c).value;
+          const len = v == null ? 0 : String(v).length;
+          if (len > maxLen) maxLen = len;
+        }
+        sheet.getColumn(c).width = Math.min(50, Math.max(10, maxLen + 2));
+      }
+      const buffer = await workbook.xlsx.writeBuffer();
+      const filename = `fee-transactions-${start || 'ALL'}-${end || 'ALL'}.xlsx`;
+      res.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition',`attachment; filename="${filename}"`);
-      res.send(html);
+      res.send(Buffer.from(buffer));
     } catch (e) {
-      console.error(e);
-      res.status(500).json({ message: 'failed to export excel (html table)', error: (e as any)?.message });
+      console.error('transactions excel export error', e);
+      res.status(500).json({ message: 'failed to export transactions xlsx', error: (e as any)?.message });
     }
   });
 
@@ -885,7 +951,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/admin/config', async (req, res) => {
+  app.post('/api/admin/config', authMiddleware, requireRole(['admin']), async (req, res) => {
     try {
   const parsed = schoolConfigSchema.parse(req.body);
   const normalizedPhone = parsed.phone === '' ? null : parsed.phone;
@@ -937,6 +1003,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
   }
 
+  // Register auth endpoints after other middleware/handlers initialization
+  registerAuth(app);
   const httpServer = createServer(app);
   return httpServer;
+}
+// Auth endpoints registered after core routes to avoid interfering with existing middlewares
+export function registerAuth(app: Express) {
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const result = await handleRegister(req.body);
+      res.status(result.status).json(result.payload);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ message: 'failed to register' });
+    }
+  });
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const result = await handleLogin(req.body);
+      res.status(result.status).json(result.payload);
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ message: 'failed to login' });
+    }
+  });
+  app.get('/api/auth/me', authMiddleware, (req, res) => {
+    const auth = currentUserFromReq(req);
+    res.json({ user: auth ? { id: auth.sub, role: auth.role, email: auth.email } : null });
+  });
 }
