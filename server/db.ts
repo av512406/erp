@@ -37,6 +37,9 @@ export async function ensureTables(retries = 8, delayMs = 1000) {
         father_name text,
         mother_name text,
         yearly_fee_amount numeric(10,2) NOT NULL,
+        status text NOT NULL DEFAULT 'active',
+        left_date date,
+        leaving_reason text,
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now()
       );
@@ -103,6 +106,9 @@ export async function ensureTables(retries = 8, delayMs = 1000) {
       -- add parent name columns if missing
       ALTER TABLE students ADD COLUMN IF NOT EXISTS father_name text;
       ALTER TABLE students ADD COLUMN IF NOT EXISTS mother_name text;
+  ALTER TABLE students ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active';
+  ALTER TABLE students ADD COLUMN IF NOT EXISTS left_date date;
+  ALTER TABLE students ADD COLUMN IF NOT EXISTS leaving_reason text;
 
       -- ensure payment_mode cannot be null and has a sensible default
       ALTER TABLE fee_transactions ALTER COLUMN payment_mode SET DEFAULT 'cash';
@@ -190,6 +196,21 @@ export async function ensureTables(retries = 8, delayMs = 1000) {
           FOR EACH ROW EXECUTE FUNCTION set_updated_at();
         END IF;
       END $$;
+
+      -- School configuration (single-row table). Stores basic metadata and optional base64 logo.
+      CREATE TABLE IF NOT EXISTS school_config (
+        id text PRIMARY KEY,
+        name text NOT NULL,
+        address_line text NOT NULL,
+        phone text,
+        session text,
+        logo_url text,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+      -- Ensure default row exists
+      INSERT INTO school_config (id, name, address_line, phone, session, logo_url)
+      VALUES ('default','GLORIOUS PUBLIC SCHOOL','Jamoura (Sarkhadi), Distt. LALITPUR (U.P)','+91-0000-000000','2025-2026', NULL)
+      ON CONFLICT (id) DO NOTHING;
     `);
   } finally {
     client.release();

@@ -9,12 +9,15 @@ declare module 'http' {
     rawBody: unknown
   }
 }
+// Increase body size limit to accommodate base64 logo uploads (default ~100kb was causing 413)
 app.use(express.json({
+  // Allow up to 5mb to avoid upstream proxy truncation after base64 expansion; actual logo size enforced server-side at 300KB
+  limit: '5mb',
   verify: (req, _res, buf) => {
     req.rawBody = buf;
   }
 }));
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: '5mb' }));
 
 app.use((req, res, next) => {
   const start = Date.now();

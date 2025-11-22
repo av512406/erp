@@ -78,7 +78,7 @@ declare global {
   }
 }
 
-export default function DataToolsPage({ students, onImportStudents, onUpsertStudents, onImportGrades, onLoadDemoData }: DataToolsPageProps) {
+export default function DataToolsPage({ students, onImportStudents, onUpsertStudents, onImportGrades, onImportTransactions, onLoadDemoData }: DataToolsPageProps) {
   const [isImporting, setIsImporting] = useState(false);
   const [exportFilter, setExportFilter] = useState<string>("all");
   const [templateGrade, setTemplateGrade] = useState<string>("all");

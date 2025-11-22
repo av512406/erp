@@ -33,6 +33,9 @@ export const students = pgTable("students", {
   fatherName: text("father_name"),
   motherName: text("mother_name"),
   yearlyFeeAmount: decimal("yearly_fee_amount", { precision: 10, scale: 2 }).notNull(),
+  status: text("status").notNull(),
+  leftDate: date("left_date"),
+  leavingReason: text("leaving_reason"),
 });
 
 export const insertStudentSchema = createInsertSchema(students).omit({

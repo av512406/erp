@@ -2,7 +2,7 @@ import type { Express } from 'express';
 import { createServer, type Server } from 'http';
 import { pool, ensureTables, genId, genTransactionId } from './db';
 import { insertStudentSchema, insertGradeSchema, insertFeeTransactionSchema, insertSubjectSchema } from '../shared/schema';
-import { ZodError } from 'zod';
+import { ZodError, z } from 'zod';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // ensure DB tables exist (helpful for local Docker)
@@ -26,7 +26,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       section: row.section,
       fatherName: row.father_name,
       motherName: row.mother_name,
-      yearlyFeeAmount: row.yearly_fee_amount?.toString?.() ?? row.yearly_fee_amount
+      yearlyFeeAmount: row.yearly_fee_amount?.toString?.() ?? row.yearly_fee_amount,
+      status: row.status || 'active',
+      leftDate: formatDateForClient(row.left_date),
+      leavingReason: row.leaving_reason || ''
     };
   }
 
@@ -67,7 +70,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Students APIs
   app.get('/api/students', async (_req, res) => {
-    const { rows } = await pool.query('SELECT * FROM students ORDER BY admission_number');
+    // return only active students
+    const { rows } = await pool.query("SELECT * FROM students WHERE status <> 'left' OR status IS NULL ORDER BY admission_number");
     res.json(rows.map(mapStudent));
   });
 
@@ -79,9 +83,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if ((exists.rowCount ?? 0) > 0) return res.status(409).json({ message: 'admissionNumber exists' });
       const id = genId();
       const q = await pool.query(
-        `INSERT INTO students (id, admission_number, name, date_of_birth, admission_date, aadhar_number, pen_number, aapar_id, mobile_number, address, grade, section, father_name, mother_name, yearly_fee_amount)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
-        [id, data.admissionNumber, data.name, data.dateOfBirth, data.admissionDate, data.aadharNumber || null, data.penNumber || null, data.aaparId || null, data.mobileNumber || null, data.address || null, data.grade || null, data.section || null, (data as any).fatherName || null, (data as any).motherName || null, data.yearlyFeeAmount]
+    `INSERT INTO students (id, admission_number, name, date_of_birth, admission_date, aadhar_number, pen_number, aapar_id, mobile_number, address, grade, section, father_name, mother_name, yearly_fee_amount, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'active') RETURNING *`,
+    [id, data.admissionNumber, data.name, data.dateOfBirth, data.admissionDate, data.aadharNumber || null, data.penNumber || null, data.aaparId || null, data.mobileNumber || null, data.address || null, data.grade || null, data.section || null, (data as any).fatherName || null, (data as any).motherName || null, data.yearlyFeeAmount]
       );
   res.status(201).json(mapStudent(q.rows[0]));
     } catch (e) {
@@ -151,7 +155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } else {
             const id = genId();
             await client.query(
-              `INSERT INTO students (id, admission_number, name, date_of_birth, admission_date, aadhar_number, pen_number, aapar_id, mobile_number, address, grade, section, father_name, mother_name, yearly_fee_amount) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+              `INSERT INTO students (id, admission_number, name, date_of_birth, admission_date, aadhar_number, pen_number, aapar_id, mobile_number, address, grade, section, father_name, mother_name, yearly_fee_amount, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'active')`,
               [id, data.admissionNumber, data.name, data.dateOfBirth, data.admissionDate, data.aadharNumber || null, data.penNumber || null, data.aaparId || null, data.mobileNumber || null, data.address || null, data.grade || null, data.section || null, (data as any).fatherName || null, (data as any).motherName || null, data.yearlyFeeAmount]
             );
             added.push(data.admissionNumber);
@@ -168,6 +172,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: 'import failed' });
     } finally {
       client.release();
+    }
+  });
+
+  // List left students (moved outside import route)
+  app.get('/api/students/left', async (_req, res) => {
+    const { rows } = await pool.query("SELECT * FROM students WHERE status = 'left' ORDER BY left_date DESC NULLS LAST, admission_number");
+    res.json(rows.map(mapStudent));
+  });
+  // Alias with more professional terminology
+  app.get('/api/students/withdrawn', async (_req, res) => {
+    const { rows } = await pool.query("SELECT * FROM students WHERE status = 'left' ORDER BY left_date DESC NULLS LAST, admission_number");
+    res.json(rows.map(mapStudent));
+  });
+
+  // Mark a student as left (moved outside import route)
+  app.put('/api/students/:admissionNumber/leave', async (req, res) => {
+    try {
+      const admissionNumber = req.params.admissionNumber;
+      const { leftDate, reason } = req.body as { leftDate?: string; reason?: string };
+      const existing = await pool.query('SELECT * FROM students WHERE admission_number=$1', [admissionNumber]);
+      if ((existing.rowCount ?? 0) === 0) return res.status(404).json({ message: 'not found' });
+      const dateToSet = leftDate || new Date().toISOString().slice(0,10);
+      const q = await pool.query('UPDATE students SET status=$1, left_date=$2, leaving_reason=$3 WHERE admission_number=$4 RETURNING *', ['left', dateToSet, reason || null, admissionNumber]);
+      res.json(mapStudent(q.rows[0]));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ message: 'failed to mark left' });
+    }
+  });
+  // Professional alias
+  app.put('/api/students/:admissionNumber/withdraw', async (req, res) => {
+    try {
+      const admissionNumber = req.params.admissionNumber;
+      const { leftDate, reason } = req.body as { leftDate?: string; reason?: string };
+      const existing = await pool.query('SELECT * FROM students WHERE admission_number=$1', [admissionNumber]);
+      if ((existing.rowCount ?? 0) === 0) return res.status(404).json({ message: 'not found' });
+      const dateToSet = leftDate || new Date().toISOString().slice(0,10);
+      const q = await pool.query('UPDATE students SET status=$1, left_date=$2, leaving_reason=$3 WHERE admission_number=$4 RETURNING *', ['left', dateToSet, reason || null, admissionNumber]);
+      res.json(mapStudent(q.rows[0]));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ message: 'failed to mark withdrawn' });
+    }
+  });
+  // Restore a withdrawn student to active status
+  app.put('/api/students/:admissionNumber/restore', async (req, res) => {
+    try {
+      const admissionNumber = req.params.admissionNumber;
+      const existing = await pool.query('SELECT * FROM students WHERE admission_number=$1', [admissionNumber]);
+      if ((existing.rowCount ?? 0) === 0) return res.status(404).json({ message: 'student not found' });
+      const current = existing.rows[0];
+      if (current.status !== 'left') {
+        // No-op restore; already active (avoid throwing 409 making UI look like error)
+        return res.json(mapStudent(current));
+      }
+      const q = await pool.query('UPDATE students SET status=$1, left_date=NULL, leaving_reason=NULL WHERE admission_number=$2 RETURNING *', ['active', admissionNumber]);
+      res.json(mapStudent(q.rows[0]));
+    } catch (e: any) {
+      console.error('restore error', e);
+      res.status(500).json({ message: e?.message || 'failed to restore' });
     }
   });
 
@@ -545,6 +609,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const needsQuotes = /[",\n]/.test(value);
     let v = value.replace(/"/g, '""');
     return needsQuotes ? '"' + v + '"' : v;
+  }
+
+  // --- School Config Endpoints ---
+  // Zod schema kept minimal; allow optional logo (URL or data URI)
+  const schoolConfigSchema = z.object({
+    name: z.string().min(1),
+    addressLine: z.string().min(1),
+    phone: z.string().transform(v => v.trim()).optional(),
+    session: z.string().min(4),
+    logoUrl: z.string().url().or(z.string().startsWith('data:')).nullable().optional()
+  });
+
+  app.get('/api/admin/config', async (_req, res) => {
+    try {
+      const { rows } = await pool.query('SELECT * FROM school_config WHERE id=$1', ['default']);
+      if (rows.length === 0) {
+        // Should not happen (ensureTables inserts) but recreate if missing
+        await pool.query('INSERT INTO school_config (id, name, address_line, phone, session) VALUES ($1,$2,$3,$4,$5)', ['default','GLORIOUS PUBLIC SCHOOL','Jamoura (Sarkhadi), Distt. LALITPUR (U.P)','+91-0000-000000','2025-2026']);
+        const recreated = await pool.query('SELECT * FROM school_config WHERE id=$1', ['default']);
+        return res.json(mapConfig(recreated.rows[0]));
+      }
+      res.json(mapConfig(rows[0]));
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ message: 'failed to load school config' });
+    }
+  });
+
+  app.post('/api/admin/config', async (req, res) => {
+    try {
+  const parsed = schoolConfigSchema.parse(req.body);
+  const normalizedPhone = parsed.phone === '' ? null : parsed.phone;
+      // Enforce max logo size (<=300KB raw) when data URI supplied
+      if (parsed.logoUrl && /^data:/.test(parsed.logoUrl)) {
+        const match = parsed.logoUrl.match(/^data:[^;]+;base64,(.+)$/);
+        if (match) {
+          const b64 = match[1];
+          // approximate decoded size
+          const padding = (b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0);
+          const rawBytes = (b64.length * 3) / 4 - padding;
+          const maxBytes = 300 * 1024; // 300KB
+          if (rawBytes > maxBytes) {
+            return res.status(413).json({ message: 'logo exceeds 300KB limit', providedKB: Math.round(rawBytes/1024) });
+          }
+        } else {
+          return res.status(400).json({ message: 'invalid base64 data URI for logo' });
+        }
+      }
+      await pool.query(
+        `INSERT INTO school_config (id, name, address_line, phone, session, logo_url, updated_at)
+         VALUES ('default',$1,$2,$3,$4,$5, now())
+         ON CONFLICT (id) DO UPDATE SET
+           name=EXCLUDED.name,
+           address_line=EXCLUDED.address_line,
+           phone=EXCLUDED.phone,
+           session=EXCLUDED.session,
+           logo_url=EXCLUDED.logo_url,
+           updated_at=now()`,
+  [parsed.name, parsed.addressLine, normalizedPhone, parsed.session, parsed.logoUrl || null]
+      );
+      const { rows } = await pool.query('SELECT * FROM school_config WHERE id=$1', ['default']);
+      res.json(mapConfig(rows[0]));
+    } catch (e) {
+      if (e instanceof ZodError) return res.status(400).json({ message: 'validation', issues: e.format() });
+      console.error(e);
+      res.status(500).json({ message: 'failed to save school config' });
+    }
+  });
+
+  function mapConfig(row: any) {
+    return {
+      name: row.name,
+      addressLine: row.address_line,
+      phone: row.phone,
+      session: row.session,
+      logoUrl: row.logo_url || null,
+      updatedAt: row.updated_at
+    };
   }
 
   const httpServer = createServer(app);

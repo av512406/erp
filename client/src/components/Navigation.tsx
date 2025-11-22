@@ -9,8 +9,12 @@ import {
   BookOpen,
   Database,
   Library,
-  LogOut
+  LogOut,
+  Settings,
+  Phone,
+  UserX
 } from "lucide-react";
+import { useSchoolConfig } from '@/hooks/useSchoolConfig';
 
 interface NavigationProps {
   userRole: 'admin' | 'teacher';
@@ -20,15 +24,19 @@ interface NavigationProps {
 
 export default function Navigation({ userRole, userEmail, onLogout }: NavigationProps) {
   const [location] = useLocation();
+  // Fetch school config globally so logo/phone persist across reloads
+  const { config } = useSchoolConfig();
 
   const adminLinks = [
     { path: "/", label: "Dashboard", icon: LayoutDashboard },
     { path: "/students", label: "Students", icon: Users },
+    { path: "/students-withdrawn", label: 'Withdrawn Students', icon: UserX },
     { path: "/fees", label: "Fees", icon: DollarSign },
     { path: "/reports", label: "Reports", icon: FileText },
     { path: "/grades", label: "Grades", icon: BookOpen },
     { path: "/subjects", label: "Subjects", icon: Library },
     { path: "/data-tools", label: "Data Tools", icon: Database },
+    { path: "/admin-settings", label: "Settings", icon: Settings },
   ];
 
   const teacherLinks = [
@@ -44,10 +52,14 @@ export default function Navigation({ userRole, userEmail, onLogout }: Navigation
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-6">
             <Link href="/" className="flex items-center gap-2 hover-elevate rounded-md px-3 py-2">
-              <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center">
-                <GraduationCap className="w-5 h-5 text-primary-foreground" />
-              </div>
-              <span className="font-semibold text-lg">School ERP</span>
+              {config.logoUrl ? (
+                <img src={config.logoUrl} alt="Logo" className="h-10 w-10 object-contain rounded" />
+              ) : (
+                <div className="w-10 h-10 bg-primary rounded-md flex items-center justify-center">
+                  <GraduationCap className="w-6 h-6 text-primary-foreground" />
+                </div>
+              )}
+              <span className="font-semibold text-lg truncate max-w-[200px]" title={config.name}>{config.name || 'School ERP'}</span>
             </Link>
             
             <div className="flex items-center gap-1">
@@ -72,6 +84,11 @@ export default function Navigation({ userRole, userEmail, onLogout }: Navigation
           </div>
 
           <div className="flex items-center gap-4">
+            {config.phone && (
+              <div className="hidden md:flex items-center text-xs text-muted-foreground gap-1" title="School Phone">
+                <Phone className="w-3 h-3" /> {config.phone}
+              </div>
+            )}
             <div className="text-sm">
               <p className="font-medium">{userEmail}</p>
               <p className="text-xs text-muted-foreground capitalize">{userRole}</p>

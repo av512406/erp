@@ -20,7 +20,9 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileText } from "lucide-react";
-import PayslipModal from "./PayslipModal";
+import { printReceipt } from './Receipt';
+import ReceiptDistributionModal from './ReceiptDistributionModal';
+import { schoolConfig } from '@/lib/schoolConfig';
 import type { Student } from '@shared/schema';
 
 export interface FeeTransaction {
@@ -46,10 +48,11 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
   const [viewStudent, setViewStudent] = useState("all");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedPayslip, setSelectedPayslip] = useState<FeeTransaction | null>(null);
+  // payslip removed; use distribution modal directly
   const [paymentMode, setPaymentMode] = useState<string>('cash');
   const [remarks, setRemarks] = useState<string>('');
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [distributionTx, setDistributionTx] = useState<FeeTransaction | null>(null);
   // New: class & section filters (dependencies order: choose class first, then section)
   const [filterGrade, setFilterGrade] = useState<'all' | string>('all');
   const [filterSection, setFilterSection] = useState<'all' | string>('all');
@@ -96,8 +99,8 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
           paymentMode,
           remarks
         });
-        // open payslip for the newly created transaction
-        setSelectedPayslip(created);
+        // open distribution modal immediately for printing
+        setDistributionTx(created);
         setSelectedStudent("");
         setAmount("");
         setDate(new Date().toISOString().split('T')[0]);
@@ -316,16 +319,13 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
                           <TableCell className="font-medium">{transaction.studentName}</TableCell>
                           <TableCell className="font-semibold">₹{transaction.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                           <TableCell>{new Date(transaction.date).toLocaleDateString()}</TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="text-right space-x-2">
                             <Button
-                              variant="outline"
+                              variant="secondary"
                               size="sm"
-                              onClick={() => setSelectedPayslip(transaction)}
-                              className="gap-2"
-                              data-testid={`button-payslip-${transaction.id}`}
+                              onClick={() => setDistributionTx(transaction)}
                             >
-                              <FileText className="w-4 h-4" />
-                              Payslip
+                              Print Receipt
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -339,10 +339,11 @@ export default function FeesPage({ students, transactions, onAddTransaction }: F
         </div>
       </div>
 
-      <PayslipModal
-        transaction={selectedPayslip}
-        isOpen={!!selectedPayslip}
-        onClose={() => setSelectedPayslip(null)}
+      <ReceiptDistributionModal
+        open={!!distributionTx}
+        onClose={() => setDistributionTx(null)}
+        transaction={distributionTx}
+        student={distributionTx ? students.find(s => s.id === distributionTx.studentId) || null : null}
       />
     </div>
   );

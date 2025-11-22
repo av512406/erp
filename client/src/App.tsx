@@ -10,11 +10,13 @@ import LoginPage from "@/components/LoginPage";
 import Navigation from "@/components/Navigation";
 import Dashboard from "@/components/Dashboard";
 import StudentsPage from "@/components/StudentsPage";
+import WithdrawnStudentsPage from "@/components/WithdrawnStudentsPage";
 import FeesPage from "@/components/FeesPage";
 import GradesPage from "@/components/GradesPage";
 import ReportsPage from "@/components/ReportsPage";
 import DataToolsPage from "@/components/DataToolsPage";
 import SubjectsPage from "@/components/SubjectsPage";
+import AdminSettingsPage from "./components/AdminSettingsPage";
 import type { Student } from "@shared/schema";
 import type { FeeTransaction } from "@/components/FeesPage";
 import type { GradeEntry } from "@/components/GradesPage";
@@ -28,16 +30,20 @@ function Router({ user }: { user: User }) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [students, setStudents] = useState<Student[]>([]);
+  const [withdrawnStudents, setWithdrawnStudents] = useState<Student[]>([]);
   // initial load from backend
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/students');
-        if (res.ok) {
-          const data = await res.json();
-          setStudents(data);
+        const activeRes = await fetch('/api/students');
+        if (activeRes.ok) {
+          setStudents(await activeRes.json());
         }
-      } catch (e) { /* network error ignored */ }
+        const leftRes = await fetch('/api/students/withdrawn');
+        if (leftRes.ok) {
+          setWithdrawnStudents(await leftRes.json());
+        }
+      } catch (e) { /* ignore network */ }
     })();
   }, []);
 
@@ -96,6 +102,33 @@ function Router({ user }: { user: User }) {
       const res = await fetch(`/api/students/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (res.ok) setStudents(prev => prev.filter(s => s.id !== id));
     } catch (e) { /* ignore */ }
+  };
+
+  const handleMarkWithdrawn = async (admissionNumber: string, payload: { leftDate?: string; reason?: string }) => {
+    try {
+      // Prefer professional alias; fall back to legacy path if needed
+      let res = await fetch(`/api/students/${encodeURIComponent(admissionNumber)}/withdraw`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leftDate: payload.leftDate, reason: payload.reason })
+      });
+      if (!res.ok) {
+        res = await fetch(`/api/students/${encodeURIComponent(admissionNumber)}/leave`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ leftDate: payload.leftDate, reason: payload.reason })
+        });
+      }
+      if (!res.ok) {
+        const msg = await (async () => { try { const j = await res.json(); return j?.message; } catch { return ''; } })();
+        throw new Error(msg || 'Failed');
+      }
+      const updated = await res.json();
+      setStudents(prev => prev.filter(s => s.admissionNumber !== admissionNumber));
+      setWithdrawnStudents(prev => [...prev, updated]);
+    } catch (e) {
+      // surface minimal alert
+      alert((e as any)?.message || 'Failed to mark as withdrawn');
+    }
   };
 
   const handleAddTransaction = async (transaction: Omit<FeeTransaction, 'id' | 'transactionId'>) => {
@@ -233,7 +266,10 @@ function Router({ user }: { user: User }) {
         section,
         fatherName: '',
         motherName: '',
-        yearlyFeeAmount: (20000 + (parseInt(grade) * 1000)).toString()
+        yearlyFeeAmount: (20000 + (parseInt(grade) * 1000)).toString(),
+        status: 'active',
+        leftDate: '',
+        leavingReason: ''
       });
     }
 
@@ -292,7 +328,40 @@ function Router({ user }: { user: User }) {
           onAddStudent={handleAddStudent}
           onEditStudent={handleEditStudent}
           onDeleteStudent={handleDeleteStudent}
+          onMarkWithdrawn={handleMarkWithdrawn}
         />
+      </Route>
+      <Route path="/students-withdrawn">
+        <WithdrawnStudentsPage students={withdrawnStudents} onRestore={async (admissionNumber) => {
+          try {
+            const res = await fetch(`/api/students/${encodeURIComponent(admissionNumber)}/restore`, { method: 'PUT' });
+            if (!res.ok) {
+              const msg = await (async () => { try { const j = await res.json(); return j?.message; } catch { return ''; } })();
+              throw new Error(msg || 'Failed to restore');
+            }
+            const restored = await res.json();
+            setWithdrawnStudents(prev => prev.filter(s => s.admissionNumber !== admissionNumber));
+            setStudents(prev => [...prev, restored]);
+          } catch (e: any) {
+            alert(e?.message || 'Restore failed');
+          }
+        }} />
+      </Route>
+      <Route path="/students-left">
+        <WithdrawnStudentsPage students={withdrawnStudents} onRestore={async (admissionNumber) => {
+          try {
+            const res = await fetch(`/api/students/${encodeURIComponent(admissionNumber)}/restore`, { method: 'PUT' });
+            if (!res.ok) {
+              const msg = await (async () => { try { const j = await res.json(); return j?.message; } catch { return ''; } })();
+              throw new Error(msg || 'Failed to restore');
+            }
+            const restored = await res.json();
+            setWithdrawnStudents(prev => prev.filter(s => s.admissionNumber !== admissionNumber));
+            setStudents(prev => [...prev, restored]);
+          } catch (e: any) {
+            alert(e?.message || 'Restore failed');
+          }
+        }} />
       </Route>
       <Route path="/fees">
         <FeesPage
@@ -323,6 +392,9 @@ function Router({ user }: { user: User }) {
       </Route>
       <Route path="/reports">
         <ReportsPage students={students} grades={grades} />
+      </Route>
+      <Route path="/admin-settings">
+        <AdminSettingsPage />
       </Route>
       <Route component={NotFound} />
     </Switch>

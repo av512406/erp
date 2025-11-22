@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, UserX } from "lucide-react";
 import StudentFormModal from "./StudentFormModal";
 import type { Student, InsertStudent } from "@shared/schema";
 
@@ -20,6 +20,7 @@ interface StudentsPageProps {
   onAddStudent: (student: Omit<Student, 'id'>) => void;
   onEditStudent: (id: string, student: Omit<Student, 'id'>) => void;
   onDeleteStudent: (id: string) => void;
+  onMarkWithdrawn?: (admissionNumber: string, payload: { leftDate?: string; reason?: string }) => Promise<void> | void;
   isReadOnly?: boolean;
 }
 
@@ -28,6 +29,7 @@ export default function StudentsPage({
   onAddStudent,
   onEditStudent,
   onDeleteStudent,
+  onMarkWithdrawn,
   isReadOnly = false
 }: StudentsPageProps) {
   const [searchTerm, setSearchTerm] = useState("");
@@ -179,6 +181,25 @@ export default function StudentsPage({
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
+                        {onMarkWithdrawn && student.status !== 'left' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={async () => {
+                              const reason = window.prompt('Withdrawal reason (optional):', '');
+                              // If user cancels prompt (returns null), abort without withdrawing
+                              if (reason === null) return;
+                              try {
+                                await onMarkWithdrawn(student.admissionNumber, { reason: reason || '' });
+                              } catch (e: any) {
+                                alert(e?.message || 'Failed to mark student as withdrawn');
+                              }
+                            }}
+                            title="Mark as Withdrawn"
+                          >
+                            <UserX className="w-4 h-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   )}
