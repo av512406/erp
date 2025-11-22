@@ -11,9 +11,16 @@ import {
   Library,
   LogOut,
   Settings,
-  Phone,
   UserX
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator
+} from '@/components/ui/dropdown-menu';
 import { useSchoolConfig } from '@/hooks/useSchoolConfig';
 
 interface NavigationProps {
@@ -27,6 +34,7 @@ export default function Navigation({ userRole, userEmail, onLogout }: Navigation
   // Fetch school config globally so logo/phone persist across reloads
   const { config } = useSchoolConfig();
 
+  // Core admin links (Settings & Subjects moved into dropdown)
   const adminLinks = [
     { path: "/", label: "Dashboard", icon: LayoutDashboard },
     { path: "/students", label: "Students", icon: Users },
@@ -34,9 +42,7 @@ export default function Navigation({ userRole, userEmail, onLogout }: Navigation
     { path: "/fees", label: "Fees", icon: DollarSign },
     { path: "/reports", label: "Reports", icon: FileText },
     { path: "/grades", label: "Grades", icon: BookOpen },
-    { path: "/subjects", label: "Subjects", icon: Library },
     { path: "/data-tools", label: "Data Tools", icon: Database },
-    { path: "/admin-settings", label: "Settings", icon: Settings },
   ];
 
   const teacherLinks = [
@@ -80,15 +86,38 @@ export default function Navigation({ userRole, userEmail, onLogout }: Navigation
                   </Link>
                 );
               })}
+              {userRole === 'admin' && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant={["/admin-settings","/subjects"].includes(location) ? "secondary" : "ghost"}
+                      size="sm"
+                      className="gap-2"
+                      data-testid="link-settings-dropdown"
+                    >
+                      <Settings className="w-4 h-4" />
+                      Settings
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin-settings" className="flex items-center gap-2">
+                        <Settings className="w-4 h-4" /> School Settings
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/subjects" className="flex items-center gap-2">
+                        <Library className="w-4 h-4" /> Subjects
+                      </Link>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </div>
 
           <div className="flex items-center gap-4">
-            {config.phone && (
-              <div className="hidden md:flex items-center text-xs text-muted-foreground gap-1" title="School Phone">
-                <Phone className="w-3 h-3" /> {config.phone}
-              </div>
-            )}
+            {/* Phone number hidden as per requirement */}
             <div className="text-sm">
               <p className="font-medium">{userEmail}</p>
               <p className="text-xs text-muted-foreground capitalize">{userRole}</p>
