@@ -16,31 +16,30 @@ function log(message: string) {
   console.log(`${formattedTime} [backend] ${message}`);
 }
 
+import cors from 'cors';
+
+// ... (existing imports)
+
 const app = express();
 
-// Assign requestId early for correlation
-app.use((req: Request, _res: Response, next: NextFunction) => {
-  (req as any).requestId = randomUUID();
-  next();
-});
+// CORS Configuration
+const allowedOrigins = [
+  'http://localhost:5173', // Local dev
+  process.env.CORS_ORIGIN, // Production frontend URL (e.g., https://username.github.io)
+].filter(Boolean);
 
-// Security headers (production only heavy config)
-const isProd = process.env.NODE_ENV === 'production';
-app.use(helmet({
-  contentSecurityPolicy: isProd ? {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", 'data:'],
-      objectSrc: ["'none'"],
-      frameAncestors: ["'none'"],
-      upgradeInsecureRequests: []
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || allowedOrigins.some(o => origin.startsWith(o as string))) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
     }
-  } : false,
-  crossOriginEmbedderPolicy: false // disable for now to avoid breakage with external fonts/images
+  },
+  credentials: true,
 }));
-app.disable('x-powered-by');
+
+// ... (rest of the file)
 
 // Rate limiting: stricter on auth; moderate on writes (skip GET to avoid blocking dashboards)
 const authLimiter = rateLimit({
@@ -95,8 +94,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-  const reqId = (req as any).requestId;
-  let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms id=${reqId}`;
+      const reqId = (req as any).requestId;
+      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms id=${reqId}`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
@@ -133,7 +132,7 @@ app.get('/api/health', async (_req: Request, res: Response) => {
     await pool.query('SELECT 1');
     clearTimeout(timeout);
     res.json({ ok: true, db: true, timestamp: new Date().toISOString() });
-  } catch (e:any) {
+  } catch (e: any) {
     res.status(503).json({ ok: false, db: false, error: e?.code || e?.message || 'db check failed', timestamp: new Date().toISOString() });
   }
 });
