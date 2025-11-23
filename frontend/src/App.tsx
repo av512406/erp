@@ -20,6 +20,7 @@ import AdminSettingsPage from "./components/AdminSettingsPage";
 import type { Student } from "@shared/schema";
 import type { FeeTransaction } from "@/components/FeesPage";
 import type { GradeEntry } from "@/components/GradesPage";
+import { apiUrl } from "@/lib/api";
 
 const AUTH_TOKEN_KEY = 'erpAuthToken';
 
@@ -95,7 +96,7 @@ function Router({ user, authFetch }: { user: User; authFetch: AuthFetch }) {
     const existing = students.find(s => s.id === id);
     if (!existing) return;
     try {
-  const res = await authFetch(`/api/students/${encodeURIComponent(existing.admissionNumber)}` , { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(student) });
+      const res = await authFetch(`/api/students/${encodeURIComponent(existing.admissionNumber)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(student) });
       if (res.ok) {
         const updated = await res.json();
         setStudents(prev => prev.map(s => s.id === id ? updated : s));
@@ -105,7 +106,7 @@ function Router({ user, authFetch }: { user: User; authFetch: AuthFetch }) {
 
   const handleDeleteStudent = async (id: string) => {
     try {
-  const res = await authFetch(`/api/students/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/students/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (res.ok) setStudents(prev => prev.filter(s => s.id !== id));
     } catch (e) { /* ignore */ }
   };
@@ -172,7 +173,7 @@ function Router({ user, authFetch }: { user: User; authFetch: AuthFetch }) {
       // (see server/schema). Send marks as strings to avoid Zod/Drizzle parsing errors.
       const payloadToSend = newGrades.map(g => ({ ...g, marks: String(g.marks) }));
 
-  const res = await authFetch('/api/grades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadToSend) });
+      const res = await authFetch('/api/grades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadToSend) });
       if (res.ok) {
         const payload = await res.json();
         if (Array.isArray(payload.grades)) {
@@ -214,10 +215,10 @@ function Router({ user, authFetch }: { user: User; authFetch: AuthFetch }) {
 
   const handleImportStudents = async (imported: Omit<Student, 'id'>[]) => {
     try {
-  const res = await authFetch('/api/students/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ students: imported, strategy: 'skip' }) });
+      const res = await authFetch('/api/students/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ students: imported, strategy: 'skip' }) });
       if (res.ok) {
         const summary = await res.json();
-  const refreshed = await authFetch('/api/students').then(r => r.json());
+        const refreshed = await authFetch('/api/students').then(r => r.json());
         setStudents(refreshed);
         return { added: summary.added, skipped: summary.skipped, skippedAdmissionNumbers: summary.skippedAdmissionNumbers };
       }
@@ -227,10 +228,10 @@ function Router({ user, authFetch }: { user: User; authFetch: AuthFetch }) {
 
   const handleUpsertStudents = async (imported: Omit<Student, 'id'>[]) => {
     try {
-  const res = await authFetch('/api/students/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ students: imported, strategy: 'upsert' }) });
+      const res = await authFetch('/api/students/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ students: imported, strategy: 'upsert' }) });
       if (res.ok) {
         const summary = await res.json();
-  const refreshed = await authFetch('/api/students').then(r => r.json());
+        const refreshed = await authFetch('/api/students').then(r => r.json());
         setStudents(refreshed);
         return { updated: summary.updated };
       }
@@ -244,10 +245,10 @@ function Router({ user, authFetch }: { user: User; authFetch: AuthFetch }) {
 
   const handleImportTransactions = async (imported: { studentId: string; amount: string; paymentDate: string; paymentMode?: string; remarks?: string }[]) => {
     try {
-  const res = await authFetch('/api/fees/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(imported) });
+      const res = await authFetch('/api/fees/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(imported) });
       if (res.ok) {
         const summary = await res.json();
-  const refreshed = await authFetch('/api/fees').then(r => r.json());
+        const refreshed = await authFetch('/api/fees').then(r => r.json());
         setTransactions(refreshed);
         return { inserted: summary.inserted, skipped: summary.skipped, skippedRows: summary.skippedRows || [] };
       }
@@ -432,7 +433,7 @@ function App() {
     }
     (async () => {
       try {
-        const res = await fetch('/api/auth/me', {
+        const res = await fetch(apiUrl('/api/auth/me'), {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (!res.ok) {
@@ -476,7 +477,7 @@ function App() {
   }, [token]);
 
   const handleLogin = async (email: string, password: string) => {
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch(apiUrl('/api/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })

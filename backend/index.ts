@@ -33,7 +33,8 @@ const app = express();
 // CORS Configuration
 const allowedOrigins = [
   'http://localhost:5173', // Local dev
-  process.env.CORS_ORIGIN, // Production frontend URL (e.g., https://username.github.io)
+  'https://av512406.github.io', // GitHub Pages
+  process.env.CORS_ORIGIN, // Production frontend URL from env
 ].filter(Boolean);
 
 app.use(cors({
@@ -53,14 +54,10 @@ app.use(cors({
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
 });
 const writeLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   max: 1000,
-  standardHeaders: true,
-  legacyHeaders: false,
   skip: (req) => req.method === 'GET'
 });
 app.use('/api/auth/', authLimiter);
