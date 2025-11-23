@@ -1,4 +1,4 @@
-import { pool, ensureTables, genId, genTransactionId } from './db';
+import { pool, ensureTables, genId, genTransactionId } from './db.js';
 
 // Reset (truncate) all application tables. Optionally seed with sample data when --sample is passed.
 // Usage:
@@ -85,7 +85,7 @@ async function main() {
   if (sample) {
     await seedSample();
   }
-  const tables = ['students','subjects','class_subjects','grades','fee_transactions'];
+  const tables = ['students', 'subjects', 'class_subjects', 'grades', 'fee_transactions'];
   const summary: Record<string, number> = {};
   for (const t of tables) summary[t] = await count(t);
   console.log('\n=== Database Reset Complete ===');

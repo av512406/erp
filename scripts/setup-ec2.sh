@@ -33,8 +33,16 @@ sudo chown -R $USER:$USER /srv/school-erp
 
 # 7. Create Nginx Config
 echo "Configuring Nginx..."
-# Prompt for domain name
-read -p "Enter your domain name (e.g., api.yourschool.com): " DOMAIN_NAME
+# Use first argument as domain, or prompt if not provided
+DOMAIN_NAME=$1
+if [ -z "$DOMAIN_NAME" ]; then
+    read -p "Enter your domain name (e.g., api.yourschool.com): " DOMAIN_NAME
+fi
+
+if [ -z "$DOMAIN_NAME" ]; then
+    echo "Error: Domain name is required."
+    exit 1
+fi
 
 sudo tee /etc/nginx/sites-available/school-erp > /dev/null <<EOF
 server {

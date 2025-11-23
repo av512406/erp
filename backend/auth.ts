@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
-import { pool } from './db';
+import { pool } from './db.js';
 import { RegisterUserInput, registerUserSchema, loginSchema, LoginInput } from '@erp/shared';
 import { z, ZodError } from 'zod';
 
@@ -43,7 +43,7 @@ export function authMiddleware(req: any, res: any, next: any) {
 }
 
 export function requireRole(roles: string[]) {
-  return function(req: any, res: any, next: any) {
+  return function (req: any, res: any, next: any) {
     const auth = (req as any).auth;
     if (!auth) return res.status(401).json({ message: 'unauthenticated' });
     if (!roles.includes(auth.role)) return res.status(403).json({ message: 'forbidden' });

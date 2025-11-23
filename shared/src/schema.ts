@@ -17,13 +17,16 @@ export const users = pgTable('users', {
 export const registerUserSchema = z.object({
 	email: z.string().email(),
 	password: z.string().min(8),
-	role: z.enum(['admin','teacher']).optional(),
+	role: z.enum(['admin', 'teacher']).optional(),
 	name: z.string().min(1).optional()
 });
 export const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
 export type RegisterUserInput = z.infer<typeof registerUserSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type User = typeof users.$inferSelect;
+
+export const insertUserSchema = createInsertSchema(users);
+export type InsertUser = z.infer<typeof insertUserSchema>;
 
 export const students = pgTable("students", {
 	id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -115,5 +118,5 @@ export const feeTransactionImportSchema = z.array(feeTransactionImportRowSchema)
 export const gradeBulkRowSchema = insertGradeSchema;
 export const gradeBulkArraySchema = z.array(gradeBulkRowSchema).min(1);
 export const studentImportRowSchema = insertStudentSchema;
-export const studentImportSchema = z.object({ students: z.array(studentImportRowSchema).min(1), strategy: z.enum(['skip','upsert']).optional() });
+export const studentImportSchema = z.object({ students: z.array(studentImportRowSchema).min(1), strategy: z.enum(['skip', 'upsert']).optional() });
 

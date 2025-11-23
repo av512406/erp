@@ -4,8 +4,14 @@
     "outDir": "dist",
     "rootDir": "src",
     "declaration": true,
-    "composite": true
+    "composite": true,
+    "noEmit": false,
+    "allowImportingTsExtensions": false
   },
-  "include": ["src"],
-  "exclude": ["dist"]
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "dist"
+  ]
 }

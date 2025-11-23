@@ -1,9 +1,17 @@
+import dotenv from 'dotenv';
+const dotenvResult = dotenv.config();
+if (dotenvResult.error) {
+  console.log('Dotenv error:', dotenvResult.error);
+}
+console.log('Current directory:', process.cwd());
+console.log('Environment PORT:', process.env.PORT);
+
 import express, { type Request, Response, NextFunction } from "express";
-import { pool } from './db';
+import { pool } from './db.js';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { randomUUID } from 'crypto';
-import { registerRoutes } from "./routes";
+import { registerRoutes } from "./routes.js";
 // Decoupled from Vite: remove import of ./vite (which pulled in 'vite' package) to allow backend to run standalone
 // Lightweight log helper replicated here (original lived in ./vite.ts and required Vite deps indirectly)
 function log(message: string) {
@@ -88,7 +96,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   const originalResJson = res.json;
   res.json = function (bodyJson: any, ...args: any[]) {
     capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
+    return originalResJson.apply(res, [bodyJson, ...args] as [any]);
   };
 
   res.on("finish", () => {
@@ -116,7 +124,7 @@ app.get('/healthz', (_req: Request, res: Response) => res.json({ ok: true, times
 app.get('/readyz', async (req: Request, res: Response) => {
   try {
     const seq = await app.get('pool')?.query?.("SELECT last_value FROM receipt_serial_seq")
-      || await import('./db').then(m => m.pool.query("SELECT 1"));
+      || await import('./db.js').then(m => m.pool.query("SELECT 1"));
     res.json({ ready: true, sequenceChecked: !!seq });
   } catch (e) {
     res.status(500).json({ ready: false, error: (e as any)?.message });
