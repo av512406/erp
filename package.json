@@ -2,17 +2,21 @@
   "name": "school-erp-monorepo",
   "version": "1.0.0",
   "private": true,
-  "workspaces": ["backend", "frontend", "shared"],
+  "workspaces": [
+    "backend",
+    "frontend",
+    "shared"
+  ],
   "type": "module",
   "license": "MIT",
   "scripts": {
-  "dev:backend": "npm run -w backend dev",
-  "dev:frontend": "npm run -w frontend dev",
-  "start:backend": "npm run -w backend start",
-  "build": "npm run -w shared build && npm run -w backend build && npm run -w frontend build",
+    "dev:backend": "npm run -w backend dev",
+    "dev:frontend": "npm run -w frontend dev",
+    "start:backend": "npm run -w backend start",
+    "build": "npm run -w shared build && npm run -w backend build && npm run -w frontend build",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
-  "dependencies": {},
-  "devDependencies": {},
-  "optionalDependencies": {}
+  "devDependencies": {
+    "drizzle-kit": "^0.31.7"
+  }
 }
