@@ -8,6 +8,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   plugins: [react()],
+  base: process.env.GH_PAGES_BASE || "/",
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
@@ -16,7 +17,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "dist",
+    outDir: path.resolve(__dirname, "..", "dist"),
     emptyOutDir: true,
   },
   server: {
