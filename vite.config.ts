@@ -11,8 +11,8 @@ export default defineConfig({
     base: process.env.GH_PAGES_BASE || "/",
     resolve: {
         alias: {
-            "@": path.resolve(__dirname, "./src"),
-            "@shared": path.resolve(__dirname, "../shared"),
+            "@": path.resolve(__dirname, "./frontend/src"),
+            "@shared": path.resolve(__dirname, "./shared"),
         },
     },
     root: path.resolve(__dirname, "frontend"),
