@@ -6,16 +6,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { GraduationCap } from "lucide-react";
 
 interface LoginPageProps {
-  onLogin: (email: string, password: string) => void;
+  onLogin: (email: string, password: string) => Promise<void>;
 }
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onLogin(email, password);
+    setError(null);
+    setSubmitting(true);
+    try {
+      await onLogin(email, password);
+    } catch (err: any) {
+      setError(err?.message || "Unable to sign in");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -56,9 +66,12 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 data-testid="input-password"
               />
             </div>
-            <Button type="submit" className="w-full" data-testid="button-login">
-              Sign In
+            <Button type="submit" className="w-full" data-testid="button-login" disabled={submitting}>
+              {submitting ? "Signing In…" : "Sign In"}
             </Button>
+            {error && (
+              <p className="text-sm text-destructive text-center" data-testid="login-error">{error}</p>
+            )}
           </form>
           <div className="mt-6 text-center text-sm text-muted-foreground">
             <p>Demo credentials:</p>

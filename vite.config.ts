@@ -1,1 +1,1 @@
-export { default } from "./client/vite.config";
+export { default } from "./frontend/vite.config";

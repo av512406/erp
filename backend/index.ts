@@ -42,11 +42,29 @@ app.use(helmet({
 }));
 app.disable('x-powered-by');
 
-// Rate limiting: stricter on auth; moderate on writes
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20 });
-const writeLimiter = rateLimit({ windowMs: 10 * 60 * 1000, limit: 200 });
+// Rate limiting: stricter on auth; moderate on writes (skip GET to avoid blocking dashboards)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const writeLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === 'GET'
+});
 app.use('/api/auth/', authLimiter);
-app.use(['/api/students','/api/fees','/api/grades','/api/subjects','/api/classes','/api/admin'], writeLimiter);
+app.use([
+  '/api/students',
+  '/api/fees',
+  '/api/grades',
+  '/api/subjects',
+  '/api/classes',
+  '/api/admin'
+], writeLimiter);
 
 declare module 'http' {
   interface IncomingMessage {

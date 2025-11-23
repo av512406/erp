@@ -206,8 +206,12 @@ export default function StudentsPage({
                               const reason = window.prompt('Withdrawal reason (optional):', '');
                               // If user cancels prompt (returns null), abort without withdrawing
                               if (reason === null) return;
+                              const trimmedReason = reason.trim();
                               try {
-                                await onMarkWithdrawn(student.admissionNumber, { reason: reason || '' });
+                                await onMarkWithdrawn(
+                                  student.admissionNumber,
+                                  trimmedReason ? { reason: trimmedReason } : {}
+                                );
                               } catch (e: any) {
                                 alert(e?.message || 'Failed to mark student as withdrawn');
                               }

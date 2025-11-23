@@ -4,7 +4,6 @@ on:
   push:
     branches: [ PROD ]
     paths:
-      - 'client/**'
       - 'frontend/**'
       - 'vite.config.ts'
       - 'package.json'
@@ -44,7 +43,7 @@ jobs:
           npm run build --workspace @erp/frontend || npm run build  # fallback if not moved yet
           mkdir -p ./frontend-dist
           if [ -d dist ]; then cp -r dist/* frontend-dist/; fi
-          if [ -d client/dist ]; then cp -r client/dist/* frontend-dist/; fi
+          if [ -d frontend/dist ]; then cp -r frontend/dist/* frontend-dist/; fi
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

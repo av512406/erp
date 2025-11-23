@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -21,12 +21,18 @@ import type { Student } from "@shared/schema";
 import type { FeeTransaction } from "@/components/FeesPage";
 import type { GradeEntry } from "@/components/GradesPage";
 
+const AUTH_TOKEN_KEY = 'erpAuthToken';
+
 interface User {
+  id: string;
   email: string;
   role: 'admin' | 'teacher';
+  name?: string | null;
 }
 
-function Router({ user }: { user: User }) {
+type AuthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+function Router({ user, authFetch }: { user: User; authFetch: AuthFetch }) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [students, setStudents] = useState<Student[]>([]);
@@ -35,48 +41,48 @@ function Router({ user }: { user: User }) {
   useEffect(() => {
     (async () => {
       try {
-        const activeRes = await fetch('/api/students');
+        const activeRes = await authFetch('/api/students');
         if (activeRes.ok) {
           setStudents(await activeRes.json());
         }
-        const leftRes = await fetch('/api/students/withdrawn');
+        const leftRes = await authFetch('/api/students/withdrawn');
         if (leftRes.ok) {
           setWithdrawnStudents(await leftRes.json());
         }
       } catch (e) { /* ignore network */ }
     })();
-  }, []);
+  }, [authFetch]);
 
   const [transactions, setTransactions] = useState<FeeTransaction[]>([]);
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/fees');
+        const res = await authFetch('/api/fees');
         if (res.ok) {
           const data = await res.json();
           setTransactions(data);
         }
       } catch (e) { /* ignore */ }
     })();
-  }, []);
+  }, [authFetch]);
 
   const [grades, setGrades] = useState<GradeEntry[]>([]);
   const [savingGrades, setSavingGrades] = useState(false);
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/grades');
+        const res = await authFetch('/api/grades');
         if (res.ok) {
           const data = await res.json();
           setGrades(data);
         }
       } catch (e) { /* ignore */ }
     })();
-  }, []);
+  }, [authFetch]);
 
   const handleAddStudent = async (student: Omit<Student, 'id'>) => {
     try {
-      const res = await fetch('/api/students', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(student) });
+      const res = await authFetch('/api/students', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(student) });
       if (res.ok) {
         const created = await res.json();
         setStudents(prev => [...prev, created]);
@@ -89,7 +95,7 @@ function Router({ user }: { user: User }) {
     const existing = students.find(s => s.id === id);
     if (!existing) return;
     try {
-      const res = await fetch(`/api/students/${encodeURIComponent(existing.admissionNumber)}` , { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(student) });
+  const res = await authFetch(`/api/students/${encodeURIComponent(existing.admissionNumber)}` , { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(student) });
       if (res.ok) {
         const updated = await res.json();
         setStudents(prev => prev.map(s => s.id === id ? updated : s));
@@ -99,23 +105,31 @@ function Router({ user }: { user: User }) {
 
   const handleDeleteStudent = async (id: string) => {
     try {
-      const res = await fetch(`/api/students/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const res = await authFetch(`/api/students/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (res.ok) setStudents(prev => prev.filter(s => s.id !== id));
     } catch (e) { /* ignore */ }
   };
 
   const handleMarkWithdrawn = async (admissionNumber: string, payload: { leftDate?: string; reason?: string }) => {
     try {
+      const body: { leftDate?: string; reason?: string } = {};
+      if (payload.leftDate && /^\d{4}-\d{2}-\d{2}$/.test(payload.leftDate)) {
+        body.leftDate = payload.leftDate;
+      }
+      const trimmedReason = payload.reason?.trim();
+      if (trimmedReason) {
+        body.reason = trimmedReason;
+      }
       // Prefer professional alias; fall back to legacy path if needed
-      let res = await fetch(`/api/students/${encodeURIComponent(admissionNumber)}/withdraw`, {
+      let res = await authFetch(`/api/students/${encodeURIComponent(admissionNumber)}/withdraw`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leftDate: payload.leftDate, reason: payload.reason })
+        body: JSON.stringify(body)
       });
       if (!res.ok) {
-        res = await fetch(`/api/students/${encodeURIComponent(admissionNumber)}/leave`, {
+        res = await authFetch(`/api/students/${encodeURIComponent(admissionNumber)}/leave`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ leftDate: payload.leftDate, reason: payload.reason })
+          body: JSON.stringify(body)
         });
       }
       if (!res.ok) {
@@ -132,7 +146,7 @@ function Router({ user }: { user: User }) {
   };
 
   const handleAddTransaction = async (transaction: Omit<FeeTransaction, 'id' | 'transactionId'>) => {
-    const res = await fetch('/api/fees', {
+    const res = await authFetch('/api/fees', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -158,7 +172,7 @@ function Router({ user }: { user: User }) {
       // (see server/schema). Send marks as strings to avoid Zod/Drizzle parsing errors.
       const payloadToSend = newGrades.map(g => ({ ...g, marks: String(g.marks) }));
 
-      const res = await fetch('/api/grades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadToSend) });
+  const res = await authFetch('/api/grades', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadToSend) });
       if (res.ok) {
         const payload = await res.json();
         if (Array.isArray(payload.grades)) {
@@ -173,7 +187,7 @@ function Router({ user }: { user: User }) {
           });
         } else {
           // fallback full refresh
-          const refreshed = await fetch('/api/grades').then(r => r.json());
+          const refreshed = await authFetch('/api/grades').then(r => r.json());
           setGrades(refreshed);
         }
         toast({
@@ -200,10 +214,10 @@ function Router({ user }: { user: User }) {
 
   const handleImportStudents = async (imported: Omit<Student, 'id'>[]) => {
     try {
-      const res = await fetch('/api/students/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ students: imported, strategy: 'skip' }) });
+  const res = await authFetch('/api/students/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ students: imported, strategy: 'skip' }) });
       if (res.ok) {
         const summary = await res.json();
-        const refreshed = await fetch('/api/students').then(r => r.json());
+  const refreshed = await authFetch('/api/students').then(r => r.json());
         setStudents(refreshed);
         return { added: summary.added, skipped: summary.skipped, skippedAdmissionNumbers: summary.skippedAdmissionNumbers };
       }
@@ -213,10 +227,10 @@ function Router({ user }: { user: User }) {
 
   const handleUpsertStudents = async (imported: Omit<Student, 'id'>[]) => {
     try {
-      const res = await fetch('/api/students/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ students: imported, strategy: 'upsert' }) });
+  const res = await authFetch('/api/students/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ students: imported, strategy: 'upsert' }) });
       if (res.ok) {
         const summary = await res.json();
-        const refreshed = await fetch('/api/students').then(r => r.json());
+  const refreshed = await authFetch('/api/students').then(r => r.json());
         setStudents(refreshed);
         return { updated: summary.updated };
       }
@@ -230,10 +244,10 @@ function Router({ user }: { user: User }) {
 
   const handleImportTransactions = async (imported: { studentId: string; amount: string; paymentDate: string; paymentMode?: string; remarks?: string }[]) => {
     try {
-      const res = await fetch('/api/fees/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(imported) });
+  const res = await authFetch('/api/fees/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(imported) });
       if (res.ok) {
         const summary = await res.json();
-        const refreshed = await fetch('/api/fees').then(r => r.json());
+  const refreshed = await authFetch('/api/fees').then(r => r.json());
         setTransactions(refreshed);
         return { inserted: summary.inserted, skipped: summary.skipped, skippedRows: summary.skippedRows || [] };
       }
@@ -334,7 +348,7 @@ function Router({ user }: { user: User }) {
       <Route path="/students-withdrawn">
         <WithdrawnStudentsPage students={withdrawnStudents} onRestore={async (admissionNumber) => {
           try {
-            const res = await fetch(`/api/students/${encodeURIComponent(admissionNumber)}/restore`, { method: 'PUT' });
+            const res = await authFetch(`/api/students/${encodeURIComponent(admissionNumber)}/restore`, { method: 'PUT' });
             if (!res.ok) {
               const msg = await (async () => { try { const j = await res.json(); return j?.message; } catch { return ''; } })();
               throw new Error(msg || 'Failed to restore');
@@ -350,7 +364,7 @@ function Router({ user }: { user: User }) {
       <Route path="/students-left">
         <WithdrawnStudentsPage students={withdrawnStudents} onRestore={async (admissionNumber) => {
           try {
-            const res = await fetch(`/api/students/${encodeURIComponent(admissionNumber)}/restore`, { method: 'PUT' });
+            const res = await authFetch(`/api/students/${encodeURIComponent(admissionNumber)}/restore`, { method: 'PUT' });
             if (!res.ok) {
               const msg = await (async () => { try { const j = await res.json(); return j?.message; } catch { return ''; } })();
               throw new Error(msg || 'Failed to restore');
@@ -403,18 +417,103 @@ function Router({ user }: { user: User }) {
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  });
+  const [initializingAuth, setInitializingAuth] = useState(true);
 
-  const handleLogin = (email: string, password: string) => {
-    if (email === 'admin@school.edu' && password === 'admin123') {
-      setUser({ email, role: 'admin' });
-    } else if (email === 'teacher@school.edu' && password === 'teacher123') {
-      setUser({ email, role: 'teacher' });
+  useEffect(() => {
+    let cancelled = false;
+    if (!token) {
+      setUser(null);
+      setInitializingAuth(false);
+      return () => { cancelled = true; };
     }
+    (async () => {
+      try {
+        const res = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) {
+          throw new Error('Session expired');
+        }
+        const payload = await res.json();
+        if (!cancelled) {
+          setUser(payload?.user ?? null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setUser(null);
+          setToken(null);
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem(AUTH_TOKEN_KEY);
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setInitializingAuth(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const authFetch = useCallback(async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const headers = new Headers(init.headers || {});
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const response = await fetch(input, { ...init, headers });
+    if (response.status === 401) {
+      setUser(null);
+      setToken(null);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+      }
+    }
+    return response;
+  }, [token]);
+
+  const handleLogin = async (email: string, password: string) => {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    if (!res.ok) {
+      const msg = await (async () => { try { const payload = await res.json(); return payload?.message; } catch { return ''; } })();
+      throw new Error(msg || 'Invalid credentials');
+    }
+    const payload = await res.json();
+    const nextUser = payload?.user;
+    const nextToken = payload?.token;
+    if (!nextUser || !nextToken) {
+      throw new Error('Malformed auth response');
+    }
+    setUser(nextUser);
+    setToken(nextToken);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(AUTH_TOKEN_KEY, nextToken);
+    }
+    setInitializingAuth(false);
   };
 
   const handleLogout = () => {
     setUser(null);
+    setToken(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
   };
+
+  if (initializingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground">
+        Connecting to server…
+      </div>
+    );
+  }
 
   if (!user) {
     return (
@@ -432,7 +531,7 @@ function App() {
       <TooltipProvider>
         <div className="min-h-screen bg-background">
           <Navigation userRole={user.role} userEmail={user.email} onLogout={handleLogout} />
-          <Router user={user} />
+          <Router user={user} authFetch={authFetch} />
         </div>
         <Toaster />
       </TooltipProvider>

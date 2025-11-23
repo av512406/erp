@@ -4,9 +4,8 @@ const { gray } = require('tailwindcss/colors');
 module.exports = {
   darkMode: ['class'],
   content: [
-    './client/index.html',
-    './client/src/**/*.{js,jsx,ts,tsx}',
-    './frontend/src/**/*.{js,jsx,ts,tsx}'
+  './frontend/index.html',
+  './frontend/src/**/*.{js,jsx,ts,tsx}'
   ],
   safelist: ['bg-background','border','border-border'],
   theme: {
@@ -107,9 +106,8 @@ const { gray } = require('tailwindcss/colors');
 module.exports = {
   darkMode: ['class'],
   content: [
-    './client/index.html',
-    './client/src/**/*.{js,jsx,ts,tsx}',
-    './frontend/src/**/*.{js,jsx,ts,tsx}'
+  './frontend/index.html',
+  './frontend/src/**/*.{js,jsx,ts,tsx}'
   ],
   safelist: ['border-border'],
   theme: {

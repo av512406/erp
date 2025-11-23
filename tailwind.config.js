@@ -6,7 +6,6 @@ export default {
   darkMode: ['class'],
   content: [
     './client/index.html',
-    './client/src/**/*.{js,jsx,ts,tsx}',
     './frontend/src/**/*.{js,jsx,ts,tsx}'
   ],
   safelist: ['border-border','bg-background'],

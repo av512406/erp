@@ -126,7 +126,7 @@ On your CI or build server:
 cd client
 npm ci
 npm run build
-# build artifacts will be in client/dist (Vite default)
+# build artifacts will be in frontend/dist (Vite default)
 ```
 
 ### GitHub Pages specifics
@@ -142,7 +142,7 @@ Or configure in the Pages workflow using an env variable (`GH_PAGES_BASE`). The 
 
 API calls: ensure `VITE_API_BASE_URL` points to your AWS backend domain (e.g. `https://api.school.example`). GitHub Pages deployment is entirely static; CORS on the backend must allow the Pages origin.
 
-Deploy `client/dist` to a static host:
+Deploy `frontend/dist` to a static host:
 - Vercel or Netlify (simple, managed)
 - Firebase Hosting
 - Or copy to a VPS and serve with Nginx (instructions below)

@@ -62,7 +62,7 @@ npm run build
 ```
 Artifacts:
 - Backend: `backend/dist/index.js`
-- Frontend: `dist/public/` (current config) or `client/dist/` before full move
+- Frontend: `dist/public/` (monorepo root build) or `frontend/dist/` when building from within the app
 
 ---
 ## 5. AWS Backend Deployment (EC2 Example)
@@ -120,7 +120,7 @@ curl -s https://api.school.example/api/students | jq '.[0]'
 
 ---
 ## 9. Next Hardening Steps
-- Move `server/` → `backend/src/`, `client/` → `frontend/src/`.
+- (done) Code now lives under `backend/` and `frontend/` folders.
 - Docker multi-stage builds.
 - Add pagination endpoints.
 - Structured logging & metrics.
