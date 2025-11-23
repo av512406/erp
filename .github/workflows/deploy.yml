@@ -31,7 +31,7 @@ jobs:
         run: npm ci
 
       - name: Build
-        run: npm run build
+        run: npm run -w shared build && npm run -w frontend build
         env:
           # Set this to your repository name if not using a custom domain
           # e.g. /school-erp/
