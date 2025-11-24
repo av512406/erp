@@ -29,12 +29,15 @@ import cors from 'cors';
 // ... (existing imports)
 
 const app = express();
+app.set('trust proxy', true);
 
 // CORS Configuration
+const corsOriginEnv = process.env.CORS_ORIGIN || '';
+const corsOrigins = corsOriginEnv.split(',').map(origin => origin.trim()).filter(Boolean);
 const allowedOrigins = [
   'http://localhost:5173', // Local dev
   'https://av512406.github.io', // GitHub Pages
-  process.env.CORS_ORIGIN, // Production frontend URL from env
+  ...corsOrigins, // Production frontend URLs from env
 ].filter(Boolean);
 
 app.use(cors({
@@ -60,15 +63,15 @@ const writeLimiter = rateLimit({
   max: 1000,
   skip: (req) => req.method === 'GET'
 });
-app.use('/api/auth/', authLimiter);
-app.use([
-  '/api/students',
-  '/api/fees',
-  '/api/grades',
-  '/api/subjects',
-  '/api/classes',
-  '/api/admin'
-], writeLimiter);
+// app.use('/api/auth/', authLimiter);
+// app.use([
+//   '/api/students',
+//   '/api/fees',
+//   '/api/grades',
+//   '/api/subjects',
+//   '/api/classes',
+//   '/api/admin'
+// ], writeLimiter);
 
 declare module 'http' {
   interface IncomingMessage {

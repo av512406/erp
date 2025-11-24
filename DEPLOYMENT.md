@@ -64,15 +64,33 @@ This document provides a step-by-step guide to deploy the School ERP application
     ```bash
     nano .env
     ```
-    Add the following content:
+    Add the following content (replace with your actual values):
     ```env
+    # Database Configuration
     DATABASE_URL=your_neon_connection_string
+    
+    # Application Configuration
     NODE_ENV=production
     PORT=3000
+    
+    # CORS Configuration (MUST be HTTPS for GitHub Pages)
     CORS_ORIGIN=https://YOUR_GITHUB_USERNAME.github.io
+    
+    # Domain Configuration (REQUIRED for SSL setup)
+    # This should be your backend API domain (e.g., api.yourschool.com)
     DOMAIN_NAME=api.yourschool.com
+    
+    # JWT Secret (REQUIRED for authentication)
+    # Generate a secure random secret with: openssl rand -base64 32
+    JWT_SECRET=your_generated_jwt_secret_here
     ```
-    *Replace placeholders with your actual values.*
+    
+    **Important Notes:**
+    - Replace `your_neon_connection_string` with your actual Neon DB connection string
+    - Replace `YOUR_GITHUB_USERNAME` with your GitHub username (e.g., av512406)
+    - Replace `api.yourschool.com` with your actual domain name
+    - Generate a secure JWT_SECRET by running: `openssl rand -base64 32`
+    - Ensure your domain DNS A record points to your EC2 instance's public IP
 
 ### 2.4 Initialize SSL (Important!)
 Run the initialization script to generate SSL certificates. This is required for the backend to work with GitHub Pages (HTTPS).
@@ -107,3 +125,59 @@ docker compose -f docker-compose.prod.yml up -d
 -   **Logs**: `docker compose -f docker-compose.prod.yml logs -f`
 -   **Update**: `git pull && docker compose -f docker-compose.prod.yml up -d --build`
 -   **Renew Certs**: The `certbot` container handles this automatically.
+
+## 5. Troubleshooting
+
+### 307 Redirect Error on Login
+**Symptom**: Login fails with 307 (Temporary Redirect) error.
+
+**Cause**: HTTP/HTTPS mismatch. GitHub Pages uses HTTPS, but backend is on HTTP.
+
+**Solution**:
+1. Ensure SSL is properly initialized on EC2 (see section 2.4)
+2. Verify `DOMAIN_NAME` is set in `.env` file
+3. Check that your domain's DNS A record points to EC2 public IP
+4. Confirm `VITE_API_BASE_URL` in GitHub secrets uses `https://` (not `http://`)
+5. Restart services: `docker compose -f docker-compose.prod.yml restart`
+
+### CORS Error
+**Symptom**: "Access to fetch at '...' from origin '...' has been blocked by CORS policy"
+
+**Cause**: Backend CORS_ORIGIN doesn't match frontend origin.
+
+**Solution**:
+1. Check `.env` file: `CORS_ORIGIN=https://yourusername.github.io` (must match exactly)
+2. Ensure no trailing slash in CORS_ORIGIN
+3. Restart backend: `docker compose -f docker-compose.prod.yml restart backend`
+
+### SSL Certificate Issues
+**Symptom**: "NET::ERR_CERT_AUTHORITY_INVALID" or certificate errors
+
+**Cause**: SSL certificate not properly generated or expired.
+
+**Solution**:
+1. Check certificate exists: `ls -la ./data/certbot/conf/live/your-domain.com/`
+2. Re-run SSL initialization: `./scripts/init-ssl.sh`
+3. Check certbot logs: `docker compose -f docker-compose.prod.yml logs certbot`
+
+### GitHub Actions Build Fails
+**Symptom**: Frontend deployment fails in GitHub Actions
+
+**Cause**: Missing environment variables or build errors.
+
+**Solution**:
+1. Go to GitHub repo → Settings → Secrets and variables → Actions
+2. Ensure `VITE_API_BASE_URL` is set (use Variables, not Secrets)
+3. Value should be: `https://api.yourschool.com` (your backend domain with HTTPS)
+4. Check Actions logs for specific error messages
+
+### Backend Not Responding
+**Symptom**: API calls timeout or return 502/503 errors
+
+**Cause**: Backend container not running or database connection issues.
+
+**Solution**:
+1. Check container status: `docker compose -f docker-compose.prod.yml ps`
+2. View backend logs: `docker compose -f docker-compose.prod.yml logs backend`
+3. Test database connection: `docker compose -f docker-compose.prod.yml exec backend node -e "require('./db.js')"`
+4. Restart all services: `docker compose -f docker-compose.prod.yml restart`
