@@ -76,6 +76,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Students APIs
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const result = await handleRegister(req.body);
+      res.status(result.status).json(result.payload);
+    } catch (e) {
+      if (e instanceof ZodError) return res.status(400).json({ message: 'validation', issues: e.format() });
+      console.error(e);
+      res.status(500).json({ message: 'internal error' });
+    }
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const result = await handleLogin(req.body);
+      res.status(result.status).json(result.payload);
+    } catch (e) {
+      if (e instanceof ZodError) return res.status(400).json({ message: 'validation', issues: e.format() });
+      console.error(e);
+      res.status(500).json({ message: 'internal error' });
+    }
+  });
+
+  app.get('/api/auth/me', authMiddleware, async (req, res) => {
+    const user = currentUserFromReq(req);
+    res.json({ user });
+  });
+
   app.get('/api/students', async (_req, res) => {
     // return only active students
     const { rows } = await pool.query("SELECT * FROM students WHERE status <> 'left' OR status IS NULL ORDER BY admission_number");
