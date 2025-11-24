@@ -21,7 +21,7 @@ RUN npm run build --workspace=@erp/shared
 
 # Build backend
 RUN npm run build --workspace=@erp/backend
-RUN ls -R backend/dist
+
 
 
 # Expose port
