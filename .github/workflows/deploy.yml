@@ -41,6 +41,11 @@ jobs:
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
 
+      - name: Debug - List dist
+        run: |
+          ls -la
+          ls -R dist || echo "dist not found"
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
