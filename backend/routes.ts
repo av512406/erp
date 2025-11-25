@@ -168,7 +168,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const added: string[] = []; const skipped: string[] = []; let updated = 0;
+      const added: string[] = [];
+      const skipped: { admissionNumber: string, reason: string }[] = [];
+      let updated = 0;
       for (const row of imported) {
         try {
           const data = insertStudentSchema.parse(row);
@@ -181,7 +183,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               );
               updated++;
             } else {
-              skipped.push(data.admissionNumber);
+              skipped.push({ admissionNumber: data.admissionNumber, reason: 'duplicate' });
             }
           } else {
             const id = genId();
@@ -191,10 +193,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             );
             added.push(data.admissionNumber);
           }
-        } catch { /* skip invalid row */ }
+        } catch (e: any) {
+          skipped.push({ admissionNumber: row.admissionNumber || 'unknown', reason: e.message || 'validation error' });
+        }
       }
       await client.query('COMMIT');
-      res.json({ added: added.length, skipped: skipped.length, skippedAdmissionNumbers: skipped, updated });
+      res.json({ added: added.length, skipped: skipped.length, skippedAdmissionNumbers: skipped.map(s => s.admissionNumber), skippedDetails: skipped, updated });
     } catch (e) {
       await client.query('ROLLBACK');
       console.error(e);
@@ -751,6 +755,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error(e);
       res.status(500).json({ message: 'failed to export students' });
     }
+  });
+
+  // Template download
+  app.get('/api/students/template', async (_req, res) => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Students');
+    worksheet.columns = [
+      { header: 'Admission Number', key: 'admissionNumber', width: 20 },
+      { header: 'Name', key: 'name', width: 30 },
+      { header: 'Father Name', key: 'fatherName', width: 30 },
+      { header: 'Mother Name', key: 'motherName', width: 30 },
+      { header: 'Date of Birth (YYYY-MM-DD)', key: 'dateOfBirth', width: 15 },
+      { header: 'Admission Date (YYYY-MM-DD)', key: 'admissionDate', width: 15 },
+      { header: 'Aadhar Number', key: 'aadharNumber', width: 20 },
+      { header: 'PEN Number', key: 'penNumber', width: 20 },
+      { header: 'Aapar ID', key: 'aaparId', width: 20 },
+      { header: 'Mobile Number', key: 'mobileNumber', width: 15 },
+      { header: 'Address', key: 'address', width: 40 },
+      { header: 'Class', key: 'grade', width: 10 },
+      { header: 'Section', key: 'section', width: 10 },
+      { header: 'Yearly Fee Amount', key: 'yearlyFeeAmount', width: 15 },
+    ];
+    // Add a sample row
+    worksheet.addRow({
+      admissionNumber: 'S24-0001',
+      name: 'John Doe',
+      fatherName: 'Richard Doe',
+      motherName: 'Jane Doe',
+      dateOfBirth: '2010-01-01',
+      admissionDate: '2024-04-01',
+      aadharNumber: '1234-5678-9012',
+      penNumber: 'PEN123456',
+      aaparId: 'AAPAR123',
+      mobileNumber: '9876543210',
+      address: '123 Main St, City',
+      grade: '10',
+      section: 'A',
+      yearlyFeeAmount: 25000
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="student_import_template.xlsx"');
+    await workbook.xlsx.write(res);
+    res.end();
   });
 
   // Real .xlsx export for students with selectable columns via ?cols=col1,col2 using exceljs

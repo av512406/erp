@@ -40,19 +40,53 @@ export default function StudentsExcelExportModal({ open, onClose }: StudentsExce
   const selectAll = () => setSelected(COLUMN_OPTIONS.map(c => c.key));
   const clearAll = () => setSelected([]);
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (selected.length === 0) {
       alert('Select at least one column');
       return;
     }
     const colsParam = encodeURIComponent(selected.join(','));
     const url = `/api/export/students/excel?cols=${colsParam}`;
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = url;
-    document.body.appendChild(iframe);
-    setTimeout(() => iframe.remove(), 15000);
-    onClose();
+
+    try {
+      const token = localStorage.getItem('erpAuthToken');
+      const response = await fetch(url, {
+        credentials: 'include',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Export failed');
+      }
+
+      // Get filename from Content-Disposition header or use default
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = 'students.xlsx';
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1].replace(/['"]/g, '');
+        }
+      }
+
+      // Create blob and download
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      onClose();
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Failed to export students. Please try again.');
+    }
   };
 
   return (
