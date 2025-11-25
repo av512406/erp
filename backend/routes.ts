@@ -9,9 +9,7 @@ import { ZodError, z } from 'zod';
 import { validateBody, sanitizeObjectStrings } from './validation.js';
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // CORS (configured via FRONTEND_ORIGIN; fallback to dev permissive)
-  const origin = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
-  app.use(cors({ origin, credentials: true }));
+  // CORS is handled in index.ts
   // ensure DB tables exist (helpful for local Docker)
   await ensureTables();
 
